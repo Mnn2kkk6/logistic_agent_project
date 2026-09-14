@@ -1,4 +1,4 @@
-# AI Logistics Agent — Olist E-commerce Dataset
+# AI Logistics Agent — Delivery Risk Prediction & Chat Assistant
 
 The project builds an **AI Agent for logistics operations** on an e-commerce platform, running as a **local web app**, combining:
 
