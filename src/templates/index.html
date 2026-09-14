@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI Logistics Agent</title>
+<style>
+  :root {
+    --bg: #0F151E;
+    --panel: #161F2B;
+    --panel-2: #1C2733;
+    --border: #263241;
+    --text: #E7EAEF;
+    --muted: #8B96A6;
+    --teal: #2FBFA0;
+    --amber: #E8A23D;
+    --red: #E0615A;
+    --mono: ui-monospace, SFMono-Regular, "Roboto Mono", Menlo, Consolas, monospace;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+  }
+
+  /* ---------- Sidebar ---------- */
+  aside {
+    width: 280px;
+    flex-shrink: 0;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 22px 18px;
+  }
+  .route-line {
+    height: 3px;
+    width: 40px;
+    background: linear-gradient(90deg, var(--teal), var(--amber));
+    border-radius: 2px;
+    margin-bottom: 14px;
+  }
+  aside h1 {
+    font-size: 17px;
+    font-weight: 700;
+    margin: 0 0 2px;
+    letter-spacing: -0.01em;
+  }
+  aside .subtitle {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin: 0 0 26px;
+    line-height: 1.5;
+  }
+  .section-label {
+    font-size: 11.5px;
+    color: var(--muted);
+    margin: 0 0 10px;
+  }
+  .chip {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 7px;
+    padding: 9px 11px;
+    font-size: 13px;
+    margin-bottom: 7px;
+    cursor: pointer;
+    transition: border-color .15s ease, transform .1s ease;
+    font-family: var(--sans);
+  }
+  .chip:hover { border-color: var(--teal); }
+  .chip:active { transform: scale(0.98); }
+
+  .sidebar-spacer { flex: 1; }
+
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--muted);
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .dot.ok { background: var(--teal); }
+  .dot.err { background: var(--red); }
+
+  .reset-btn {
+    margin-top: 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    padding: 7px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-family: var(--sans);
+  }
+  .reset-btn:hover { color: var(--text); border-color: var(--red); }
+
+  /* ---------- Main chat area ---------- */
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .chat-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 28px 0 10px;
+  }
+  .chat-inner {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+  .empty-state {
+    color: var(--muted);
+    font-size: 14px;
+    margin-top: 60px;
+    text-align: center;
+    line-height: 1.7;
+  }
+  .empty-state b { color: var(--text); }
+
+  .msg { margin-bottom: 20px; display: flex; }
+  .msg.user { justify-content: flex-end; }
+  .bubble {
+    max-width: 84%;
+    padding: 11px 14px;
+    border-radius: 10px;
+    font-size: 14.5px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+  }
+  .msg.user .bubble {
+    background: var(--amber);
+    color: #1A1204;
+    border-bottom-right-radius: 3px;
+  }
+  .msg.agent .bubble {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 3px;
+  }
+  .msg.agent .bubble.error {
+    border-color: var(--red);
+    color: #FFD9D6;
+  }
+
+  .tool-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 6px 0 0 2px;
+  }
+  .tool-badge {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--teal);
+    background: rgba(47, 191, 160, 0.1);
+    border: 1px solid rgba(47, 191, 160, 0.3);
+    padding: 3px 7px;
+    border-radius: 5px;
+  }
+
+  .thinking {
+    display: inline-flex;
+    gap: 4px;
+    padding: 12px 14px;
+  }
+  .thinking span {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--muted);
+    animation: bounce 1.1s infinite ease-in-out;
+  }
+  .thinking span:nth-child(2) { animation-delay: 0.15s; }
+  .thinking span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes bounce {
+    0%, 60%, 100% { transform: translateY(0); opacity: .5; }
+    30% { transform: translateY(-4px); opacity: 1; }
+  }
+
+  /* ---------- Input bar ---------- */
+  .input-bar {
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    padding: 14px 24px 18px;
+  }
+  .input-inner {
+    max-width: 720px;
+    margin: 0 auto;
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+  }
+  textarea {
+    flex: 1;
+    resize: none;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 9px;
+    padding: 11px 13px;
+    font-family: var(--sans);
+    font-size: 14.5px;
+    line-height: 1.4;
+    max-height: 140px;
+  }
+  textarea:focus { outline: none; border-color: var(--teal); }
+  button.send {
+    background: var(--teal);
+    color: #06251E;
+    border: none;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 11px 18px;
+    border-radius: 9px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  button.send:disabled { opacity: 0.5; cursor: not-allowed; }
+  .hint { font-size: 11.5px; color: var(--muted); text-align: center; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<aside>
+  <div class="route-line"></div>
+  <h1>AI Logistics Agent</h1>
+  <p class="subtitle">Hỏi bất cứ điều gì về đơn hàng, rủi ro giao trễ, hoặc hiệu suất vận chuyển trên dữ liệu Olist.</p>
+
+  <p class="section-label">Câu hỏi mẫu</p>
+  <button class="chip" data-q="5 bang có tỉ lệ giao hàng trễ cao nhất là gì?">Top 5 bang trễ nhất</button>
+  <button class="chip" data-q="Tỉ lệ giao trễ theo từng tháng trong năm như thế nào?">Tỉ lệ trễ theo tháng</button>
+  <button class="chip" data-q="Đơn hàng khách ở RJ, seller ở SP, cách nhau 900km, phí ship 45 thì rủi ro trễ bao nhiêu %?">Dự đoán 1 đơn mới</button>
+  <button class="chip" data-q="Ngành hàng nào có tỉ lệ giao trễ cao nhất?">Ngành hàng rủi ro nhất</button>
+  <button class="chip" data-q="Điều gì ảnh hưởng nhiều nhất tới việc giao hàng trễ ở bang RJ?">Phân tích nguyên nhân trễ (RJ)</button>
+
+  <div class="sidebar-spacer"></div>
+
+  <button class="reset-btn" id="resetBtn">↺ Xoá cuộc trò chuyện</button>
+  <div class="status-row">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">Đang kiểm tra kết nối…</span>
+  </div>
+</aside>
+
+<main>
+  <div class="chat-scroll" id="chatScroll">
+    <div class="chat-inner" id="chatInner">
+      <div class="empty-state" id="emptyState">
+        Chào bạn 👋 Mình là <b>AI Logistics Agent</b>.<br/>
+        Chọn 1 câu hỏi mẫu bên trái, hoặc gõ câu hỏi của riêng bạn bên dưới.
+      </div>
+    </div>
+  </div>
+
+  <div class="input-bar">
+    <div class="input-inner">
+      <textarea id="input" rows="1" placeholder="Nhập câu hỏi… (Enter để gửi, Shift+Enter xuống dòng)"></textarea>
+      <button class="send" id="sendBtn">Gửi</button>
+    </div>
+    <p class="hint">Dữ liệu: Olist E-commerce (Brazil) · Model: Gemini</p>
+  </div>
+</main>
+
+<script>
+const chatInner = document.getElementById('chatInner');
+const chatScroll = document.getElementById('chatScroll');
+const emptyState = document.getElementById('emptyState');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('sendBtn');
+const resetBtn = document.getElementById('resetBtn');
+const statusDot = document.getElementById('statusDot');
+const statusText = document.getElementById('statusText');
+
+function scrollToBottom() {
+  chatScroll.scrollTop = chatScroll.scrollHeight;
+}
+
+function addMessage(role, text, toolCalls) {
+  if (emptyState) emptyState.remove();
+  const wrap = document.createElement('div');
+  wrap.className = 'msg ' + role;
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble' + (role === 'agent-error' ? ' error' : '');
+  bubble.textContent = text;
+
+  const col = document.createElement('div');
+  col.style.maxWidth = '84%';
+  col.appendChild(bubble);
+
+  if (toolCalls && toolCalls.length) {
+    const badges = document.createElement('div');
+    badges.className = 'tool-badges';
+    toolCalls.forEach(tc => {
+      const b = document.createElement('span');
+      b.className = 'tool-badge';
+      b.textContent = '🔧 ' + tc.name;
+      badges.appendChild(b);
+    });
+    col.appendChild(badges);
+  }
+
+  wrap.appendChild(col);
+  chatInner.appendChild(wrap);
+  scrollToBottom();
+  return wrap;
+}
+
+function addThinking() {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg agent';
+  wrap.id = 'thinkingMsg';
+  wrap.innerHTML = '<div class="bubble thinking"><span></span><span></span><span></span></div>';
+  chatInner.appendChild(wrap);
+  scrollToBottom();
+}
+
+function removeThinking() {
+  const el = document.getElementById('thinkingMsg');
+  if (el) el.remove();
+}
+
+async function sendMessage(text) {
+  if (!text.trim()) return;
+  addMessage('user', text);
+  input.value = '';
+  input.style.height = 'auto';
+  sendBtn.disabled = true;
+  addThinking();
+
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text }),
+    });
+    const data = await res.json();
+    removeThinking();
+    if (!res.ok || data.error) {
+      addMessage('agent-error', data.error || 'Đã có lỗi xảy ra.');
+    } else {
+      addMessage('agent', data.reply || '(không có phản hồi)', data.tool_calls);
+    }
+  } catch (err) {
+    removeThinking();
+    addMessage('agent-error', 'Không kết nối được tới server: ' + err.message);
+  } finally {
+    sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+sendBtn.addEventListener('click', () => sendMessage(input.value));
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage(input.value);
+  }
+});
+input.addEventListener('input', () => {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+});
+
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => sendMessage(chip.dataset.q));
+});
+
+resetBtn.addEventListener('click', async () => {
+  await fetch('/chat/reset', { method: 'POST' });
+  chatInner.innerHTML = '';
+  const el = document.createElement('div');
+  el.className = 'empty-state';
+  el.innerHTML = 'Đã xoá cuộc trò chuyện. Bắt đầu câu hỏi mới bên dưới 👇';
+  chatInner.appendChild(el);
+});
+
+// Kiểm tra health khi load trang
+fetch('/health').then(r => r.json()).then(() => {
+  statusDot.className = 'dot ok';
+  statusText.textContent = 'Server đang chạy';
+}).catch(() => {
+  statusDot.className = 'dot err';
+  statusText.textContent = 'Không kết nối được server';
+});
+</script>
+
+</body>
+</html>
