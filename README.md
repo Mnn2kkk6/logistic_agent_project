@@ -1,53 +1,46 @@
 # AI Logistics Agent — Olist E-commerce Dataset
 
-Dự án xây dựng một **AI Agent hỗ trợ nghiệp vụ logistics** cho sàn TMĐT, chạy như một
-**web app local**, kết hợp:
-1. **Mô hình Machine Learning** dự đoán rủi ro giao hàng (huấn luyện trên dữ liệu thật —
-   bộ Olist Brazilian E-commerce, ~99K đơn hàng, từ Kaggle).
-2. **Agent hội thoại dùng Gemini API (Google GenAI, function calling)** — người dùng hỏi
-   bằng ngôn ngữ tự nhiên trên giao diện web, agent tự gọi đúng tool (model ML hoặc truy
-   vấn thống kê) để trả lời.
+The project builds an **AI Agent for logistics operations** on an e-commerce platform, running as a **local web app**, combining:
 
-## 1. Bài toán & dữ liệu
+1. **Machine Learning models** for delivery-risk prediction, trained on real-world data from the Olist Brazilian E-commerce Dataset (~99K orders) from Kaggle.
+2. A **conversational Agent using the Gemini API (Google GenAI, function calling)** — users can ask questions in natural language through the web interface, and the agent automatically calls the appropriate tool (ML model or statistical query) to generate an answer.
 
-Dataset gốc gồm 9 bảng CSV (orders, order_items, payments, reviews, products, customers,
-sellers, geolocation, product_category_translation). Sau khi gộp và xử lý, còn lại
-**`processed_dataset.csv`** (99,442 dòng, 41 cột) — 1 bảng đặc trưng ở mức đơn hàng, gồm:
-- Khoảng cách seller → khách hàng (haversine, dựa trên tọa độ zip code trung bình):
-  `distance_km`, `cust_lat/lng`, `seller_lat/lng`
-- Thể tích/khối lượng sản phẩm, số lượng item, tổng giá trị/phí ship/thanh toán
-- Đặc trưng thời gian đặt hàng: `purchase_dow`, `purchase_month`, `purchase_hour`
-- **Nhãn:**
-  - `is_late`: đơn giao trễ so với ngày hẹn (`order_delivered_customer_date > order_estimated_delivery_date`)
-  - `actual_delivery_days`: số ngày từ lúc mua đến lúc khách nhận hàng
+## 1. Problem & Dataset
 
-Toàn bộ đặc trưng dùng để huấn luyện chỉ gồm thông tin **biết được ngay tại thời điểm
-đặt hàng** — mô phỏng đúng tình huống thực tế: đánh giá rủi ro *trước khi* giao hàng.
+The original dataset consists of 9 CSV tables (orders, order_items, payments, reviews, products, customers, sellers, geolocation, and product_category_translation). After merging and processing, the result is **`processed_dataset.csv`** (99,442 rows, 41 columns) — an order-level feature table containing:
 
-`processed_dataset.parquet` là bản song song của cùng dataset (đọc nhanh hơn CSV).
-`product_category_name_translation.csv` là bảng dịch tên category tiếng Bồ Đào Nha → tiếng Anh,
-dùng trong bước xử lý dữ liệu gốc.
+* Seller → customer distance (Haversine distance based on average ZIP-code coordinates): `distance_km`, `cust_lat/lng`, `seller_lat/lng`
+* Product volume/weight, number of items, total value/freight/payment amounts
+* Order-time features: `purchase_dow`, `purchase_month`, `purchase_hour`
+* **Labels:**
 
-## 2. Mô hình ML (XGBoost)
+  * `is_late`: whether the order was delivered later than the estimated delivery date (`order_delivered_customer_date > order_estimated_delivery_date`)
+  * `actual_delivery_days`: number of days from purchase to customer delivery
 
-| Mô hình | File | Mục tiêu | Kết quả (test set) |
-|---|---|---|---|
-| `late_delivery_classifier` | `late_delivery_classifier.joblib` | Xác suất giao trễ (binary) | ROC-AUC **0.788**, Accuracy **0.762**, Precision **0.20**, Recall **0.67**, F1 **0.31** |
-| `delivery_days_regressor` | `delivery_days_regressor.joblib` | Số ngày giao hàng thực tế | MAE **4.74 ngày**, RMSE **7.58 ngày** |
+All features used for training consist only of information **available at the time of order placement**, simulating a real-world scenario of evaluating delivery risk *before* fulfillment.
 
-Cả hai đều là `sklearn.Pipeline` (ColumnTransformer tiền xử lý + `XGBClassifier`/`XGBRegressor`),
-huấn luyện trên 96,470 đơn đã giao (delivered), chia 80/20 train/test. Do dữ liệu mất cân bằng
-(chỉ ~8% đơn trễ), classifier dùng `scale_pos_weight` để ưu tiên recall cao hơn precision —
-tức ưu tiên "bắt" được đơn có nguy cơ trễ, chấp nhận báo động giả nhiều hơn. Chi tiết đầy đủ về
-feature list và metrics nằm trong `model_metadata.json`.
+`processed_dataset.parquet` is a parallel version of the same dataset (faster to read). `product_category_name_translation.csv` contains the Portuguese → English product-category translations used during the original data processing step.
 
-## 3. Kiến trúc Agent (mục tiêu)
+## 2. ML Models (XGBoost)
 
-```
-Người dùng (câu hỏi tiếng Việt tự nhiên, trên web UI local)
+| **Model**                  | **File**                          | **Objective**                                     | **Test Set Results**                                                                    |
+| -------------------------- | --------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `late_delivery_classifier` | `late_delivery_classifier.joblib` | Late-delivery probability (binary classification) | ROC-AUC **0.788**, Accuracy **0.762**, Precision **0.20**, Recall **0.67**, F1 **0.31** |
+| `delivery_days_regressor`  | `delivery_days_regressor.joblib`  | Actual delivery time in days                      | MAE **4.74 days**, RMSE **7.58 days**                                                   |
+
+Both models are implemented as `sklearn.Pipeline` objects (ColumnTransformer preprocessing + `XGBClassifier`/`XGBRegressor`) and trained on 96,470 delivered orders using an 80/20 train/test split.
+
+Because the data is imbalanced (only ~8% of orders are late), the classifier uses `scale_pos_weight` to prioritize higher recall over precision — prioritizing the detection of potentially late orders while accepting more false alarms.
+
+Detailed feature lists and metrics are available in `model_metadata.json`.
+
+## 3. Agent Architecture (Target)
+
+```text
+User (natural-language Vietnamese questions through the local web UI)
         │
         ▼
-   Gemini API (Google GenAI SDK, function calling) ──► chọn tool phù hợp
+   Gemini API (Google GenAI SDK, function calling) ──► selects the appropriate tool
         │
         ▼
    tools.py: predict_new_order / get_order_info /
@@ -56,53 +49,51 @@ Người dùng (câu hỏi tiếng Việt tự nhiên, trên web UI local)
              top_risky_categories
         │
         ▼
-   Trả kết quả (JSON) về cho Gemini → tổng hợp câu trả lời tiếng Việt → hiển thị trên web
+   Tool returns JSON → Gemini summarizes the result in Vietnamese → displayed in the web UI
 ```
 
-Backend dự kiến dùng Flask để vừa serve web UI vừa expose các tool qua HTTP API.
+The backend is planned to use Flask to serve the web UI and expose the tools through HTTP APIs.
 
-## 4. Trạng thái hiện tại của repo
+## 4. Current Repository Status
 
-Hiện repo đang có:
+The repository currently contains:
 
-```
+```text
 .
-├── processed_dataset.csv                    # dataset đã xử lý (99,442 dòng)
-├── processed_dataset.parquet                 # bản parquet của cùng dataset
-├── product_category_name_translation.csv     # bảng dịch category PT → EN
-├── late_delivery_classifier.joblib            # model đã train
-├── delivery_days_regressor.joblib             # model đã train
-├── model_metadata.json                        # feature list + metrics đầy đủ
-├── test_model.py                               # script test nhanh: load classifier
-├── test_tools.py                               # script test nhanh: gọi tools.predict_new_order
+├── processed_dataset.csv                    # processed dataset (99,442 rows)
+├── processed_dataset.parquet                # Parquet version of the dataset
+├── product_category_name_translation.csv    # Portuguese → English category translation
+├── late_delivery_classifier.joblib          # trained classifier
+├── delivery_days_regressor.joblib            # trained regressor
+├── model_metadata.json                       # complete feature list + metrics
+├── test_model.py                             # quick classifier test script
+├── test_tools.py                             # quick test for tools.predict_new_order
 ├── requirements.txt
 ├── README.md
 └── README_DATA.md
 ```
 
-**Chưa có trong repo (cần triển khai tiếp):** `src/data_pipeline.py`, `src/train_models.py`,
-`src/tools.py`, `src/agent.py`, `src/api.py` — tức toàn bộ phần code xử lý dữ liệu, training,
-business-logic tools, agent Gemini và web/API server. `test_model.py` và `test_tools.py` đang
-import từ các module này (`models/late_delivery_classifier.joblib`, `from src import tools`)
-nên sẽ chưa chạy được cho đến khi các file trên được viết.
+**Not yet available in the repository (to be implemented):** `src/data_pipeline.py`, `src/train_models.py`, `src/tools.py`, `src/agent.py`, and `src/api.py` — covering data processing, model training, business-logic tools, Gemini Agent integration, and the web/API server.
 
-## 5. Cách chạy (khi đã có đủ source code)
+`test_model.py` and `test_tools.py` currently import these modules (`models/late_delivery_classifier.joblib`, `from src import tools`), so they will not run until the required source files are implemented.
+
+## 5. How to Run (Once Source Code Is Complete)
 
 ```bash
 pip install -r requirements.txt
 
-# 1) Xây dataset đã xử lý (nếu chạy lại từ dữ liệu gốc — xem README_DATA.md)
+# 1) Build the processed dataset (if rebuilding from the original data — see README_DATA.md)
 python3 -m src.data_pipeline
 
-# 2) Huấn luyện model
+# 2) Train the models
 python3 -m src.train_models
 
-# 3) Chạy web app (Flask) — agent dùng Gemini API
+# 3) Run the web app (Flask) — agent uses Gemini API
 export GEMINI_API_KEY="..."
 python3 -m src.api   # http://localhost:5000
 ```
 
-### Ví dụ gọi API
+### API Examples
 
 ```bash
 curl -X POST http://localhost:5000/predict \
@@ -112,24 +103,25 @@ curl -X POST http://localhost:5000/predict \
 curl http://localhost:5000/stats/top-risky-states?n=5
 ```
 
-### Ví dụ hội thoại với agent (qua web UI)
+### Example Agent Conversation (Web UI)
 
+```text
+User: An order from a seller in SP to a customer in AL is about 2500 km away. Is there a risk of late delivery?
+
+Agent: [calls predict_new_order] → Late-delivery probability ~XX%, estimated delivery time ~YY days.
+       Recommendation: AL has historically had a high late-delivery rate, so consider
+       choosing a seller closer to the customer or providing a longer estimated
+       delivery time to the customer.
 ```
-Bạn: Đơn hàng từ seller ở SP giao tới khách ở AL, xa khoảng 2500km, có rủi ro trễ không?
-Agent: [gọi tool predict_new_order] → Xác suất trễ ~XX%, dự kiến giao trong ~YY ngày.
-       Khuyến nghị: bang AL vốn có tỉ lệ trễ lịch sử cao, nên cân nhắc chọn seller gần
-       khách hơn hoặc cảnh báo thời gian giao dài hơn cho khách.
-```
 
-## 6. Hướng phát triển tiếp
+## 6. Future Improvements
 
-- Viết `src/tools.py`, `src/agent.py` (tích hợp Gemini function calling), `src/api.py` (Flask)
-  và giao diện web local để hoàn thiện luồng agent mô tả ở mục 3.
-- Cân bằng lại precision/recall bằng threshold tuning hoặc cost-sensitive learning theo
-  chi phí thực tế của việc giao trễ vs. cảnh báo nhầm.
-- Thêm tool `recommend_seller` (chọn seller có lịch sử giao đúng hẹn tốt nhất theo khu vực).
-- Thêm bộ nhớ hội thoại dài hạn / lưu log dự đoán để re-train định kỳ (giám sát model drift).
-- Trực quan hoá bản đồ rủi ro theo bang (folium/plotly) cho phần dashboard web.
+* Implement `src/tools.py`, `src/agent.py` (Gemini function calling), `src/api.py` (Flask), and the local web interface to complete the agent workflow described above.
+* Improve the precision/recall trade-off through threshold tuning or cost-sensitive learning based on the actual cost of late deliveries versus false alarms.
+* Add a `recommend_seller` tool to select sellers with strong on-time delivery performance for a given region.
+* Add long-term conversation memory / prediction logging for periodic retraining and model-drift monitoring.
+* Visualize delivery-risk maps by state using Folium/Plotly.
 
 ---
+
 *Dataset: [Brazilian E-Commerce Public Dataset by Olist (Kaggle)](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)*
