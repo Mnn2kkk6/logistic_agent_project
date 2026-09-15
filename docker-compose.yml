@@ -1,0 +1,26 @@
+services:
+  logistics-agent:
+    build: .
+    container_name: ai-logistics-agent
+    ports:
+      - "5000:5000"
+    environment:
+      # Đọc từ file .env cùng thư mục (xem .env.example) — Compose tự nạp .env nếu tồn tại,
+      # nhưng khai báo rõ ở đây để container thấy đúng biến dù .env đặt tên khác.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:-change-me-in-.env}
+      FLASK_DEBUG: "0"
+    volumes:
+      # Mount dataset/model dạng read-only: có thể cập nhật data/model (vd train lại) mà
+      # không cần build lại image — chỉ cần restart container.
+      - ./data:/app/data:ro
+      - ./models:/app/models:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

@@ -1,0 +1,15 @@
+# requirements-docker.txt
+# Version PIN CHÍNH XÁC khớp với môi trường đã dùng để train 2 model .joblib —
+# tránh cảnh báo "InconsistentVersionWarning" khi load model (khác với requirements.txt
+# dùng cho máy local, để mở khoảng version vì máy bạn có thể đang chạy Python 3.11,
+# vốn không cài được scikit-learn==1.8.0 / xgboost==3.4.1, chỉ có từ Python 3.12+).
+pandas==3.0.2
+numpy==2.4.4
+scikit-learn==1.8.0
+xgboost==3.4.1
+joblib==1.5.3
+pyarrow>=14.0
+flask>=3.0
+google-genai>=1.0
+openai>=1.40
+duckdb>=0.10
