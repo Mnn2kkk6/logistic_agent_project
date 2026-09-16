@@ -81,6 +81,16 @@ AVAILABLE_MODELS = {
         "provider": "xai", "label": "Grok 4.6", "env_key": "XAI_API_KEY",
         "note": "Cần XAI_API_KEY (trả phí) — model xAI mạnh nhất hiện tại",
     },
+    "openai/gpt-oss-120b": {
+        "provider": "groq", "label": "GPT-OSS 120B (Groq)", "env_key": "GROQ_API_KEY",
+        "note": "Miễn phí (~14,400 request/ngày) — chạy trên hạ tầng Groq siêu nhanh, "
+                "KHÁC với Grok của xAI. Có khả năng suy luận (reasoning) tốt hơn bản 20B.",
+    },
+    "openai/gpt-oss-20b": {
+        "provider": "groq", "label": "GPT-OSS 20B (Groq)", "env_key": "GROQ_API_KEY",
+        "note": "Miễn phí (~14,400 request/ngày), nhỏ/nhanh hơn bản 120B — dự phòng khi "
+                "Gemini hết quota mà chưa muốn dùng bản trả phí (OpenAI/xAI).",
+    },
     "local-rule-based": {
         "provider": "local", "label": "Local (miễn phí, offline)", "env_key": None,
         "note": "Không cần API key, không gọi mạng — chỉ nhận diện vài mẫu câu cố định "
@@ -120,7 +130,7 @@ def _run_tool(name: str, args: dict) -> dict:
         return {"error": str(e)}
 
 
-def chat_turn(model: str, history: list, user_message: str, max_tool_rounds: int = 5):
+def chat_turn(model: str, history: list, user_message: str, max_tool_rounds: int = 8):
     """
     history: list[{"role": "user"|"assistant", "content": str}] — lịch sử canonical.
     Trả về: (reply_text, tool_calls_log, new_history)
@@ -140,6 +150,8 @@ def chat_turn(model: str, history: list, user_message: str, max_tool_rounds: int
         reply, tool_calls = _openai_turn(model, history, user_message, max_tool_rounds)
     elif info["provider"] == "xai":
         reply, tool_calls = _xai_turn(model, history, user_message, max_tool_rounds)
+    elif info["provider"] == "groq":
+        reply, tool_calls = _groq_turn(model, history, user_message, max_tool_rounds)
     elif info["provider"] == "local":
         reply, tool_calls = _local_turn(model, history, user_message, max_tool_rounds)
     else:  # pragma: no cover — không nên xảy ra vì AVAILABLE_MODELS kiểm soát chặt
@@ -270,6 +282,13 @@ def _xai_turn(model, history, user_message, max_tool_rounds):
     return _openai_compatible_turn(
         model, history, user_message, max_tool_rounds,
         api_key=os.environ.get("XAI_API_KEY"), base_url="https://api.x.ai/v1", provider_label="xAI (Grok)",
+    )
+
+
+def _groq_turn(model, history, user_message, max_tool_rounds):
+    return _openai_compatible_turn(
+        model, history, user_message, max_tool_rounds,
+        api_key=os.environ.get("GROQ_API_KEY"), base_url="https://api.groq.com/openai/v1", provider_label="Groq",
     )
 
 
@@ -417,6 +436,202 @@ def _local_turn(model, history, user_message, max_tool_rounds):
                 + (f", điểm đánh giá TB {result['avg_review_score']}." if result.get("avg_review_score") is not None else ".")
             ), tool_calls_log
 
+    # === Bộ câu hỏi "stress test" Nhóm 1 (Multi-table Join) & Nhóm 2 (Time & Delivery) ===
+    # Đây là 8 câu hỏi CỐ ĐỊNH đã biết trước (không phải NLU tổng quát), nên nhận diện bằng
+    # tổ hợp từ khoá khá đặc thù cho từng câu để giảm rủi ro trùng lặp với các nhánh khác.
+
+    # N1-Q1: Top 10 category doanh thu cao nhất năm 2018 (kèm số đơn, freight TB, review TB)
+    if ("2018" in lower) and any(k in lower for k in ["danh mục", "danh muc", "category", "ngành hàng", "nganh hang"]) \
+            and any(k in lower for k in ["doanh thu", "revenue"]):
+        result = call("query_dataset_sql", {"sql": """
+            SELECT ct.product_category_name_english AS category, ROUND(SUM(oi.price), 2) AS revenue,
+                   COUNT(DISTINCT oi.order_id) AS n_orders, ROUND(AVG(oi.freight_value), 2) AS avg_freight,
+                   ROUND(AVG(r.review_score), 2) AS avg_review
+            FROM order_items oi
+            JOIN orders o ON oi.order_id = o.order_id
+            JOIN products p ON oi.product_id = p.product_id
+            JOIN category_translation ct ON p.product_category_name = ct.product_category_name
+            LEFT JOIN order_reviews r ON oi.order_id = r.order_id
+            WHERE o.order_status = 'delivered' AND EXTRACT(YEAR FROM o.order_purchase_timestamp) = 2018
+            GROUP BY category ORDER BY revenue DESC LIMIT 10
+        """})
+        rows = result.get("rows", [])
+        if not rows:
+            return "Không lấy được dữ liệu doanh thu theo danh mục năm 2018.", tool_calls_log
+        lines = [
+            f"{i+1}. {r['category']}: doanh thu {r['revenue']:,.0f}, {r['n_orders']} đơn, "
+            f"freight TB {r['avg_freight']}, review TB {r['avg_review']}"
+            for i, r in enumerate(rows)
+        ]
+        return "Top 10 danh mục doanh thu cao nhất năm 2018 (đơn delivered):\n" + "\n".join(lines), tool_calls_log
+
+    # N1-Q2: Seller top 10% doanh thu nhưng review TB thấp hơn trung bình toàn sàn
+    if "seller" in lower and any(k in lower for k in ["review", "đánh giá", "danh gia"]) \
+            and any(k in lower for k in ["top 10", "trung bình", "trung binh"]):
+        result = call("query_dataset_sql", {"sql": """
+            WITH seller_rev AS (
+                SELECT oi.seller_id, SUM(oi.price) AS revenue, COUNT(DISTINCT oi.order_id) AS n_orders
+                FROM order_items oi JOIN orders o ON oi.order_id = o.order_id
+                WHERE o.order_status = 'delivered' GROUP BY oi.seller_id
+            ),
+            seller_review AS (
+                SELECT oi.seller_id, AVG(r.review_score) AS avg_review,
+                       AVG(CASE WHEN r.review_score < 3 THEN 1.0 ELSE 0 END) AS pct_low_review
+                FROM order_items oi JOIN order_reviews r ON oi.order_id = r.order_id GROUP BY oi.seller_id
+            ),
+            threshold AS (SELECT PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY revenue) AS p90 FROM seller_rev),
+            overall_avg AS (SELECT AVG(review_score) AS avg_all FROM order_reviews)
+            SELECT sr.seller_id, s.seller_city, s.seller_state, ROUND(sr.revenue, 2) AS revenue, sr.n_orders,
+                   ROUND(rv.avg_review, 2) AS avg_review, ROUND(rv.pct_low_review*100, 1) AS pct_low_review_pct
+            FROM seller_rev sr
+            JOIN seller_review rv ON sr.seller_id = rv.seller_id
+            JOIN sellers s ON sr.seller_id = s.seller_id
+            CROSS JOIN threshold t CROSS JOIN overall_avg oa
+            WHERE sr.revenue >= t.p90 AND rv.avg_review < oa.avg_all
+            ORDER BY sr.revenue DESC LIMIT 10
+        """})
+        rows = result.get("rows", [])
+        if not rows:
+            return "Không tìm thấy seller nào thoả điều kiện (top 10% doanh thu, review dưới TB toàn sàn).", tool_calls_log
+        lines = [
+            f"{i+1}. {r['seller_id'][:12]}... ({r['seller_city']}, {r['seller_state']}): "
+            f"doanh thu {r['revenue']:,.0f}, {r['n_orders']} đơn, review TB {r['avg_review']}, "
+            f"{r['pct_low_review_pct']}% đơn dưới 3 sao"
+            for i, r in enumerate(rows)
+        ]
+        return "Seller top 10% doanh thu nhưng review TB thấp hơn trung bình toàn sàn:\n" + "\n".join(lines), tool_calls_log
+
+    # N1-Q3: Bang có chi tiêu TB/đơn cao VÀ thời gian giao TB cũng dài (thoả cả 2 điều kiện)
+    if "bang" in lower and any(k in lower for k in ["chi tiêu", "chi tieu"]) \
+            and any(k in lower for k in ["thời gian giao", "thoi gian giao", "giao hàng"]):
+        result = call("query_dataset_sql", {"sql": """
+            WITH stats AS (
+                SELECT customer_state, ROUND(AVG(payment_value), 2) AS avg_spend,
+                       ROUND(AVG(actual_delivery_days), 2) AS avg_days, COUNT(*) AS n
+                FROM orders WHERE order_status='delivered'
+                GROUP BY customer_state HAVING COUNT(*) >= 50
+            ),
+            overall AS (SELECT AVG(avg_spend) AS m1, AVG(avg_days) AS m2 FROM stats)
+            SELECT s.* FROM stats s CROSS JOIN overall o
+            WHERE s.avg_spend > o.m1 AND s.avg_days > o.m2 ORDER BY s.avg_spend DESC
+        """})
+        rows = result.get("rows", [])
+        if not rows:
+            return "Không có bang nào thoả cả 2 điều kiện (chi tiêu TB cao VÀ thời gian giao TB dài, so với TB toàn quốc).", tool_calls_log
+        lines = [f"{r['customer_state']}: chi tiêu TB {r['avg_spend']}, giao TB {r['avg_days']} ngày ({r['n']} đơn)" for r in rows]
+        return (
+            "Các bang có chi tiêu TB/đơn CAO HƠN trung bình toàn quốc VÀ thời gian giao TB "
+            "cũng DÀI HƠN trung bình toàn quốc:\n" + "\n".join(lines)
+        ), tool_calls_log
+
+    # N1-Q4: Top 20 sản phẩm doanh thu cao nhất, KHÔNG thuộc top 10 category
+    if any(k in lower for k in ["sản phẩm", "san pham"]) and any(k in lower for k in ["doanh thu", "revenue"]) \
+            and any(k in lower for k in ["không thuộc", "khong thuoc", "ngoài top", "ngoai top", "không nằm", "khong nam"]):
+        result = call("query_dataset_sql", {"sql": """
+            WITH cat_revenue AS (
+                SELECT ct.product_category_name_english AS cat, SUM(oi.price) AS rev
+                FROM order_items oi JOIN orders o ON oi.order_id=o.order_id
+                JOIN products p ON oi.product_id=p.product_id
+                JOIN category_translation ct ON p.product_category_name=ct.product_category_name
+                WHERE o.order_status='delivered' GROUP BY cat ORDER BY rev DESC LIMIT 10
+            ),
+            product_revenue AS (
+                SELECT oi.product_id, ct.product_category_name_english AS cat,
+                       ROUND(SUM(oi.price), 2) AS revenue, COUNT(*) AS n_sold,
+                       ROUND(AVG(r.review_score), 2) AS avg_review
+                FROM order_items oi JOIN orders o ON oi.order_id=o.order_id
+                JOIN products p ON oi.product_id=p.product_id
+                JOIN category_translation ct ON p.product_category_name=ct.product_category_name
+                LEFT JOIN order_reviews r ON oi.order_id=r.order_id
+                WHERE o.order_status='delivered' GROUP BY oi.product_id, cat
+            )
+            SELECT * FROM product_revenue WHERE cat NOT IN (SELECT cat FROM cat_revenue)
+            ORDER BY revenue DESC LIMIT 20
+        """})
+        rows = result.get("rows", [])
+        if not rows:
+            return "Không lấy được dữ liệu.", tool_calls_log
+        lines = [
+            f"{i+1}. {r['product_id'][:12]}... ({r['cat']}): doanh thu {r['revenue']:,.0f}, "
+            f"bán {r['n_sold']} lần, review TB {r['avg_review']}"
+            for i, r in enumerate(rows)
+        ]
+        return "Top 20 sản phẩm doanh thu cao nhất (KHÔNG thuộc top 10 category doanh thu cao nhất):\n" + "\n".join(lines), tool_calls_log
+
+    # N2-Q6: Chia 5 nhóm theo freight_value, so sánh tỉ lệ giao trễ
+    if any(k in lower for k in ["freight", "phí ship", "phi ship", "phí vận chuyển", "phi van chuyen"]) \
+            and any(k in lower for k in ["nhóm", "nhom", "chia"]):
+        result = call("query_dataset_sql", {"sql": """
+            WITH buckets AS (
+                SELECT *, NTILE(5) OVER (ORDER BY total_freight) AS nhom
+                FROM orders WHERE order_status='delivered' AND total_freight IS NOT NULL
+            )
+            SELECT nhom, ROUND(MIN(total_freight),2) AS freight_min, ROUND(MAX(total_freight),2) AS freight_max,
+                   ROUND(AVG(is_late)*100, 2) AS late_rate_pct, COUNT(*) AS n
+            FROM buckets GROUP BY nhom ORDER BY nhom
+        """})
+        rows = result.get("rows", [])
+        if not rows:
+            return "Không lấy được dữ liệu.", tool_calls_log
+        lines = [
+            f"Nhóm {r['nhom']} (freight {r['freight_min']}-{r['freight_max']}): "
+            f"{r['late_rate_pct']}% trễ ({r['n']} đơn)"
+            for r in rows
+        ]
+        return "So sánh tỉ lệ giao trễ theo 5 nhóm phí vận chuyển (freight_value), từ thấp đến cao:\n" + "\n".join(lines), tool_calls_log
+
+    # N2-Q7: Seller có thời gian xử lý đơn hàng (purchase -> giao cho carrier) dài nhất, >=50 đơn
+    if "seller" in lower and any(k in lower for k in ["thời gian xử lý", "thoi gian xu ly", "xử lý đơn", "xu ly don", "carrier"]):
+        result = call("query_dataset_sql", {"sql": """
+            SELECT oi.seller_id, s.seller_state,
+                   ROUND(AVG(o.approval_to_carrier_h), 2) AS avg_processing_hours,
+                   COUNT(DISTINCT oi.order_id) AS n_orders
+            FROM order_items oi
+            JOIN orders o ON oi.order_id = o.order_id
+            JOIN sellers s ON oi.seller_id = s.seller_id
+            WHERE o.order_status = 'delivered' AND o.approval_to_carrier_h IS NOT NULL
+            GROUP BY oi.seller_id, s.seller_state
+            HAVING COUNT(DISTINCT oi.order_id) >= 50
+            ORDER BY avg_processing_hours DESC LIMIT 10
+        """})
+        rows = result.get("rows", [])
+        if not rows:
+            return "Không lấy được dữ liệu (hoặc không có seller nào đủ 50 đơn delivered).", tool_calls_log
+        lines = [
+            f"{i+1}. {r['seller_id'][:12]}... ({r['seller_state']}): "
+            f"TB {r['avg_processing_hours']} giờ xử lý ({r['n_orders']} đơn)"
+            for i, r in enumerate(rows)
+        ]
+        return (
+            "Top seller có thời gian xử lý đơn hàng dài nhất (từ lúc đặt đến khi giao cho "
+            "đơn vị vận chuyển, chỉ tính seller có ≥50 đơn delivered):\n" + "\n".join(lines)
+        ), tool_calls_log
+
+    # N2-Q8: Sản phẩm giá bán TB cao NHƯNG tỉ lệ review 1-2 sao cao, >=100 sản phẩm bán ra
+    if any(k in lower for k in ["sản phẩm", "san pham"]) and any(k in lower for k in ["giá bán", "gia ban", "giá cao", "gia cao"]) \
+            and any(k in lower for k in ["1-2 sao", "1–2 sao", "review thấp", "review thap", "1 sao", "2 sao"]):
+        result = call("query_dataset_sql", {"sql": """
+            SELECT oi.product_id, ct.product_category_name_english AS category,
+                   ROUND(AVG(oi.price), 2) AS avg_price, COUNT(*) AS n_sold,
+                   ROUND(AVG(CASE WHEN r.review_score <= 2 THEN 1.0 ELSE 0 END)*100, 2) AS pct_1_2_sao
+            FROM order_items oi
+            JOIN products p ON oi.product_id = p.product_id
+            JOIN category_translation ct ON p.product_category_name = ct.product_category_name
+            LEFT JOIN order_reviews r ON oi.order_id = r.order_id
+            GROUP BY oi.product_id, category
+            HAVING COUNT(*) >= 100
+            ORDER BY avg_price DESC, pct_1_2_sao DESC LIMIT 10
+        """})
+        rows = result.get("rows", [])
+        if not rows:
+            return "Không lấy được dữ liệu (hoặc không có sản phẩm nào bán ≥100 lần).", tool_calls_log
+        lines = [
+            f"{i+1}. {r['product_id'][:12]}... ({r['category']}): giá TB {r['avg_price']}, "
+            f"bán {r['n_sold']} lần, {r['pct_1_2_sao']}% review 1-2 sao"
+            for i, r in enumerate(rows)
+        ]
+        return "Sản phẩm giá bán TB cao (chỉ tính SP bán ≥100 lần), sắp theo giá rồi theo tỉ lệ review 1-2 sao:\n" + "\n".join(lines), tool_calls_log
+
     # 4) So sánh 2 bang
     if any(k in lower for k in ["so sánh", "so sanh"]):
         states = _extract_states_in_order(text)
@@ -439,17 +654,24 @@ def _local_turn(model, history, user_message, max_tool_rounds):
                     f"- {cats[1]}: {b['n_orders']} đơn, trễ {b['late_rate_pct']}%, TB {b['avg_delivery_days']} ngày giao"
                 ), tool_calls_log
 
-    # 5) Tỉ lệ trễ theo tháng
-    if ("tháng" in lower or "thang" in lower) and any(k in lower for k in ["trễ", "tre", "tỉ lệ", "ti le"]):
+    # N2-Q5 (mở rộng): thời gian giao TB + tỉ lệ trễ theo tháng, chỉ rõ tháng cao nhất mỗi loại
+    if ("tháng" in lower or "thang" in lower) and any(k in lower for k in ["trễ", "tre", "tỉ lệ", "ti le", "thời gian", "thoi gian"]):
         result = call("query_dataset_sql", {
-            "sql": "SELECT purchase_month, ROUND(AVG(is_late)*100, 2) AS late_rate_pct, COUNT(*) AS n "
+            "sql": "SELECT purchase_month, ROUND(AVG(is_late)*100, 2) AS late_rate_pct, "
+                   "ROUND(AVG(actual_delivery_days), 2) AS avg_days, COUNT(*) AS n "
                    "FROM orders WHERE order_status='delivered' GROUP BY purchase_month ORDER BY purchase_month",
         })
         rows = result.get("rows", [])
         if not rows:
             return "Không lấy được dữ liệu theo tháng.", tool_calls_log
-        lines = [f"Tháng {r['purchase_month']}: {r['late_rate_pct']}% trễ ({r['n']} đơn)" for r in rows]
-        return "Tỉ lệ giao trễ theo tháng:\n" + "\n".join(lines), tool_calls_log
+        max_days = max(rows, key=lambda r: r["avg_days"])
+        max_late = max(rows, key=lambda r: r["late_rate_pct"])
+        lines = [f"Tháng {r['purchase_month']}: TB {r['avg_days']} ngày giao, {r['late_rate_pct']}% trễ ({r['n']} đơn)" for r in rows]
+        return (
+            "Thời gian giao hàng TB + tỉ lệ giao trễ theo tháng:\n" + "\n".join(lines) +
+            f"\n\n→ Tháng có thời gian giao TB cao nhất: Tháng {max_days['purchase_month']} ({max_days['avg_days']} ngày)."
+            f"\n→ Tháng có tỉ lệ giao trễ cao nhất: Tháng {max_late['purchase_month']} ({max_late['late_rate_pct']}%)."
+        ), tool_calls_log
 
     # 6) Tỉ lệ trễ theo thứ trong tuần
     if "trong tuần" in lower or "trong tuan" in lower:
