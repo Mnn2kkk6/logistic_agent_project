@@ -1,193 +1,182 @@
 # AI Logistics Agent — Olist E-commerce Dataset
 
-Web app local kết hợp **Machine Learning** (dự đoán rủi ro giao hàng) và **AI Agent hội
-thoại đa-model** (Gemini / GPT-4o / Grok — tự đổi model khi 1 provider hết quota) để hỗ
-trợ nghiệp vụ logistics cho sàn TMĐT, xây trên bộ dữ liệu **Olist Brazilian E-commerce**
-(~99K đơn hàng, Kaggle).
+A local web app combining **Machine Learning** (delivery risk prediction) and a **multi-model conversational AI Agent** (Gemini / GPT-4o / Grok — automatically switch models when one provider runs out of quota) to support logistics operations for an e-commerce platform, built on the **Olist Brazilian E-commerce** dataset (~99K orders, Kaggle).
 
-## 1. Tính năng chính
+## 1. Key Features
 
-- **Dự đoán rủi ro giao trễ + số ngày giao hàng** cho 1 đơn hàng mới (trước khi giao)
-- **Chat hỏi-đáp bằng tiếng Việt** trên giao diện web, agent tự gọi đúng tool để trả lời
-- **Chọn model linh hoạt** ngay trên giao diện: Gemini Flash/Flash-Lite/2.0, GPT-4o/mini,
-  Grok 4 Fast/4.6, và **Local (rule-based, miễn phí, offline)** — đổi model khi 1 provider
-  hết quota mà không mất ngữ cảnh hội thoại
-- **Tự viết SQL** để trả lời các câu hỏi phân tích không có tool cứng (so sánh theo
-  tháng, phương thức thanh toán, cân nặng sản phẩm...)
-- **Train nhanh model tạm thời** cho target/subset khác ngoài 2 model chính (ví dụ dự
-  đoán review_score, hoặc chỉ train riêng cho 1 bang)
-- **Đóng gói Docker** — chạy 1 lệnh, không cần tự cài Python/thư viện
+* **Predict delivery risk + delivery time** for a new order (before shipment)
+* **Vietnamese conversational Q&A** through the web interface, with the agent automatically calling the appropriate tool
+* **Flexible model selection** directly from the UI: Gemini Flash/Flash-Lite/2.0, GPT-4o/mini, Grok 4 Fast/4.6, and **Local (rule-based, free, offline)** — switch models when one provider runs out of quota without losing conversation context
+* **Automatic SQL generation** to answer analytical questions without a dedicated tool (monthly comparisons, payment methods, product weight...)
+* **Quickly train temporary models** for other targets/subsets beyond the two main models (e.g. predicting `review_score`, or training only for one state)
+* **Dockerized deployment** — run with one command without manually installing Python/dependencies
 
-## 2. Kiến trúc
+## 2. Architecture
 
-```
-Trình duyệt (giao diện web, templates/index.html)
-        │  chọn model qua dropdown
+```text
+Browser (web UI, templates/index.html)
+        │  select model via dropdown
         ▼
-Flask API (src/api.py)  ──►  src/providers.py (lớp trừu tượng đa-model)
+Flask API (src/api.py)  ──►  src/providers.py (multi-model abstraction layer)
         │                         │
         │                         ├─ Gemini (google-genai)
         │                         ├─ OpenAI (GPT-4o / GPT-4o mini)
         │                         ├─ xAI/Grok (OpenAI-compatible endpoint)
-        │                         └─ Local (regex/rule-based, không gọi API — luôn dùng được)
+        │                         └─ Local (regex/rule-based, no API call — always available)
         │
         ▼
-   src/tools.py — các hàm nghiệp vụ mà agent có thể gọi:
+   src/tools.py — business functions available to the agent:
      predict_new_order · get_order_info · get_state_stats · get_seller_stats
      get_category_stats · top_risky_states · top_risky_categories
-     describe_dataset · query_dataset_sql (DuckDB, chỉ SELECT) · train_custom_model
+     describe_dataset · query_dataset_sql (DuckDB, SELECT only) · train_custom_model
         │
         ▼
    data/processed_dataset.csv  +  models/*.joblib (XGBoost)
 ```
 
-**Lịch sử hội thoại lưu dạng "canonical"** (chỉ text, không phụ thuộc provider) trong
-`src/providers.py`, nên đổi model giữa chừng cuộc trò chuyện không bị vỡ format — đánh
-đổi là model mới sẽ không "nhớ" các bước gọi tool nội bộ ở lượt trước, chỉ nhớ nội dung
-hội thoại dạng text.
+**Conversation history is stored in "canonical" format** (text only, provider-independent) in `src/providers.py`, so switching models in the middle of a conversation does not break the format — the trade-off is that the new model will not "remember" internal tool calls from previous turns, only the text-based conversation history.
 
-## 3. Bài toán & dữ liệu
+## 3. Problem & Data
 
-Dataset gốc gồm 9 bảng CSV (orders, order_items, payments, reviews, products, customers,
-sellers, geolocation, product_category_translation), gộp lại thành
-**`data/processed_dataset.csv`** (99,442 dòng, 41 cột) qua `src/data_pipeline.py`:
-- Khoảng cách seller → khách hàng (haversine, dựa trên tọa độ zip code trung bình)
-- Thể tích/khối lượng sản phẩm, số lượng item, tổng giá trị/phí ship/thanh toán
-- Đặc trưng thời gian đặt hàng: thứ, tháng, giờ
-- **Nhãn:** `is_late` (giao trễ so với ngày hẹn) và `actual_delivery_days` (số ngày giao
-  thực tế) — chỉ tính được với đơn đã giao (delivered)
+The original dataset contains 9 CSV tables (orders, order_items, payments, reviews, products, customers, sellers, geolocation, product_category_translation), merged into **`data/processed_dataset.csv`** (99,442 rows, 41 columns) through `src/data_pipeline.py`:
 
-Toàn bộ đặc trưng dùng để huấn luyện chỉ gồm thông tin **biết được ngay tại thời điểm
-đặt hàng** — mô phỏng đúng tình huống thực tế: đánh giá rủi ro *trước khi* giao hàng.
+* Seller → customer distance (Haversine, based on average zip-code coordinates)
+* Product volume/weight, number of items, total order value/shipping/payment amounts
+* Order-time features: weekday, month, hour
+* **Labels:** `is_late` (delivered later than the estimated date) and `actual_delivery_days` (actual delivery duration in days) — only available for delivered orders (`delivered`)
 
-## 4. Model ML (XGBoost)
+All features used for training contain only information **available at order placement time** — accurately simulating a real-world scenario where delivery risk is evaluated *before* shipment.
 
-| Model | File | Mục tiêu | Kết quả (test set) |
-|---|---|---|---|
-| `late_delivery_classifier` | `models/late_delivery_classifier.joblib` | Xác suất giao trễ (binary) | ROC-AUC **0.788**, Recall **0.67**, F1 **0.31** |
-| `delivery_days_regressor` | `models/delivery_days_regressor.joblib` | Số ngày giao hàng thực tế | MAE **4.74 ngày**, RMSE **7.58 ngày** |
+## 4. ML Models (XGBoost)
 
-Cả hai là `sklearn.Pipeline` (ColumnTransformer + XGBClassifier/XGBRegressor), huấn luyện
-trên 96,470 đơn đã giao, chia 80/20 train/test. Do dữ liệu mất cân bằng (~8% đơn trễ),
-classifier dùng `scale_pos_weight` để ưu tiên recall cao hơn precision. Chi tiết đầy đủ:
-`models/model_metadata.json`.
+| Model                      | File                                     | Objective                             | Test Set Results                                |
+| -------------------------- | ---------------------------------------- | ------------------------------------- | ----------------------------------------------- |
+| `late_delivery_classifier` | `models/late_delivery_classifier.joblib` | Probability of late delivery (binary) | ROC-AUC **0.788**, Recall **0.67**, F1 **0.31** |
+| `delivery_days_regressor`  | `models/delivery_days_regressor.joblib`  | Actual delivery time in days          | MAE **4.74 days**, RMSE **7.58 days**           |
 
-## 5. Model chat hỗ trợ
+Both are `sklearn.Pipeline` models (ColumnTransformer + XGBClassifier/XGBRegressor), trained on 96,470 delivered orders using an 80/20 train/test split. Due to class imbalance (~8% late orders), the classifier uses `scale_pos_weight` to prioritize higher recall over precision. Full details: `models/model_metadata.json`.
 
-| Model | Cần key | Ghi chú |
-|---|---|---|
-| Gemini 2.5 Flash *(mặc định)* | `GEMINI_API_KEY` | Miễn phí — [lấy tại đây](https://aistudio.google.com/apikey) |
-| Gemini 2.5 Flash-Lite | `GEMINI_API_KEY` | Miễn phí, hạn mức cao hơn — dùng khi Flash hết quota |
-| Gemini 2.0 Flash | `GEMINI_API_KEY` | Miễn phí, bản dự phòng thế hệ trước |
-| GPT-4o mini | `OPENAI_API_KEY` | Trả phí — [platform.openai.com](https://platform.openai.com/api-keys) |
-| GPT-4o | `OPENAI_API_KEY` | Trả phí, chất lượng cao nhất |
-| Grok 4 Fast | `XAI_API_KEY` | Trả phí — [console.x.ai](https://console.x.ai) (cần nạp credit trước) |
-| Grok 4.6 | `XAI_API_KEY` | Trả phí, model xAI mạnh nhất |
-| Local (rule-based) | *không cần key* | Miễn phí, offline hoàn toàn — dự phòng "chót" khi mọi model khác đều hết quota. Xem chi tiết ở mục 5.1 |
+## 5. Chat Model Support
 
-Chỉ cần cấu hình **1 key** (Gemini, miễn phí) là dùng được toàn bộ tính năng. Các key
-khác là tuỳ chọn, dùng làm dự phòng khi Gemini hết quota. Model nào thiếu key sẽ hiện
-`(chưa có key)` trong dropdown và báo lỗi rõ ràng nếu chọn. Riêng **Local** luôn sẵn sàng,
-không phụ thuộc key nào.
+| Model                        | Key Required      | Notes                                                                                                     |
+| ---------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------- |
+| Gemini 2.5 Flash *(default)* | `GEMINI_API_KEY`  | Free — [get it here](https://aistudio.google.com/apikey)                                                  |
+| Gemini 2.5 Flash-Lite        | `GEMINI_API_KEY`  | Free, higher quota — used when Flash runs out of quota                                                    |
+| Gemini 2.0 Flash             | `GEMINI_API_KEY`  | Free, previous-generation fallback                                                                        |
+| GPT-4o mini                  | `OPENAI_API_KEY`  | Paid — [platform.openai.com](https://platform.openai.com/api-keys)                                        |
+| GPT-4o                       | `OPENAI_API_KEY`  | Paid, highest quality                                                                                     |
+| Grok 4 Fast                  | `XAI_API_KEY`     | Paid — [console.x.ai](https://console.x.ai) (requires credits)                                            |
+| Grok 4.6                     | `XAI_API_KEY`     | Paid, xAI's strongest model                                                                               |
+| Local (rule-based)           | *no key required* | Free, fully offline — final fallback when all other free/paid providers run out of quota. See Section 5.1 |
 
-### 5.1. Chế độ Local (rule-based) — hoạt động thế nào
+Only **1 key** (Gemini, free) is required to use the full feature set. Other keys are optional and serve as fallbacks when Gemini runs out of quota. Models without a configured key will appear as `(no key)` in the dropdown and return a clear error if selected. **Local** is always available and does not depend on any API key.
 
-Không gọi bất kỳ LLM/API nào — chỉ nhận diện từ khoá/mẫu câu cố định (regex) để quyết
-định gọi đúng tool, nên **không hiểu ngôn ngữ tự nhiên linh hoạt** như các model AI thật.
-Đổi lại: luôn dùng được, kể cả khi mất mạng ngoài hoặc mọi provider trả phí/miễn phí khác
-đều hết quota.
+### 5.1. Local Mode (rule-based) — How It Works
 
-Các mẫu câu được hỗ trợ:
+It does not call any LLM/API — it only detects fixed keywords/patterns (regex) to determine which tool should be called. Therefore, it **does not understand natural language as flexibly** as real AI models.
 
-| Nhóm | Ví dụ câu hỏi |
-|---|---|
-| Dự đoán đơn hàng mới | "Dự đoán đơn hàng khách RJ seller SP cách 900km" |
-| Tra cứu 1 đơn hàng | "Tra cứu đơn hàng \<order_id\>" |
-| Thống kê 1 seller | "Thống kê seller \<seller_id\>" |
-| Thống kê 1 ngành hàng cụ thể | "Ngành hàng audio giao thế nào" |
-| Top N bang / ngành hàng trễ nhất | "Top 5 bang trễ nhất", "Ngành hàng nào trễ nhiều nhất" |
-| So sánh 2 bang | "So sánh RJ và SP" |
-| So sánh 2 ngành hàng | "So sánh audio và food" |
-| Thống kê 1 bang cụ thể | "Thống kê bang RJ" |
-| Trễ theo tháng | "Tỉ lệ trễ theo từng tháng" |
-| Trễ theo thứ trong tuần | "Ngày nào trong tuần hay trễ nhất" |
-| Trễ theo khung giờ đặt hàng | "Khung giờ nào dễ bị trễ" |
-| Cùng bang vs khác bang | "Cùng bang có ít trễ hơn không" |
-| Ảnh hưởng số kỳ trả góp | "Trả góp nhiều có ảnh hưởng giao hàng không" |
-| Ảnh hưởng cân nặng sản phẩm | "Đơn hàng nặng có hay trễ không" |
-| Review score theo bang/ngành hàng | "Bang nào khách đánh giá thấp nhất" |
-| Tổng quan dataset | "Có bao nhiêu đơn hàng?", "Dữ liệu từ năm nào đến năm nào?" |
-| Mô tả cấu trúc dataset | "Có bao nhiêu cột trong dataset?" |
+In return, it is always available, even when the external network is unavailable or all other free/paid providers have exhausted their quotas.
 
-Câu hỏi không khớp mẫu nào sẽ được trả lời bằng danh sách gợi ý các mẫu câu trên, kèm
-khuyến nghị đổi sang model AI thật (Gemini/GPT/Grok) nếu cần hỏi tự do, phức tạp hơn.
+Supported query patterns:
 
-## 6. Cấu trúc thư mục
+| Category                             | Example Query                                                   |
+| ------------------------------------ | --------------------------------------------------------------- |
+| New order prediction                 | "Predict an order for customer RJ, seller SP, distance 900km"   |
+| Look up an order                     | "Look up order <order_id>"                                      |
+| Seller statistics                    | "Statistics for seller <seller_id>"                             |
+| Specific product category statistics | "How does the audio category perform?"                          |
+| Top N riskiest states / categories   | "Top 5 riskiest states", "Which category has the most delays?"  |
+| Compare 2 states                     | "Compare RJ and SP"                                             |
+| Compare 2 categories                 | "Compare audio and food"                                        |
+| Statistics for a specific state      | "Statistics for state RJ"                                       |
+| Late deliveries by month             | "Late delivery rate by month"                                   |
+| Late deliveries by weekday           | "Which weekday has the most delays?"                            |
+| Late deliveries by order hour        | "Which time of day is most likely to be late?"                  |
+| Same-state vs cross-state            | "Are same-state deliveries less likely to be late?"             |
+| Effect of installment count          | "Do more installments affect delivery time?"                    |
+| Effect of product weight             | "Are heavier orders more likely to be late?"                    |
+| Review score by state/category       | "Which state has the lowest customer ratings?"                  |
+| Dataset overview                     | "How many orders are there?", "What years does the data cover?" |
+| Dataset structure                    | "How many columns are in the dataset?"                          |
 
-```
+Queries that do not match any supported pattern will return a list of example queries above, together with a recommendation to switch to a real AI model (Gemini/GPT/Grok) for more flexible and complex questions.
+
+## 6. Project Structure
+
+```text
 logistics_agent/
-├── data/                          # processed_dataset.csv + bảng dịch category
-├── models/                        # model .joblib đã train + model_metadata.json
+├── data/                          # processed_dataset.csv + category translation table
+├── models/                        # trained .joblib models + model_metadata.json
 ├── src/
 │   ├── data_pipeline.py           # load, merge, feature engineering
-│   ├── train_models.py            # huấn luyện classifier + regressor
-│   ├── tool_schemas.py            # TOOLS (JSON Schema) + SYSTEM_PROMPT dùng chung
-│   ├── tools.py                   # hàm nghiệp vụ (ML predict, thống kê, SQL, train tạm)
-│   ├── providers.py                # lớp trừu tượng đa-model (Gemini/OpenAI/xAI)
-│   ├── api.py                      # Flask API + serve web UI — ĐIỂM VÀO CHÍNH
-│   ├── agent.py, agent_gemini.py   # bản CLI cũ (chạy trong terminal, không có web UI)
-├── templates/index.html            # giao diện chat web
-├── requirements.txt                 # cài cho máy local (version mở, linh hoạt theo Python)
-├── requirements-docker.txt          # cài cho Docker (version PIN khớp lúc train model)
+│   ├── train_models.py            # train classifier + regressor
+│   ├── tool_schemas.py            # TOOLS (JSON Schema) + shared SYSTEM_PROMPT
+│   ├── tools.py                   # business functions (ML prediction, statistics, SQL, temporary training)
+│   ├── providers.py                # multi-model abstraction layer (Gemini/OpenAI/xAI)
+│   ├── api.py                      # Flask API + web UI server — MAIN ENTRY POINT
+│   ├── agent.py, agent_gemini.py   # old CLI versions (terminal-based, no web UI)
+├── templates/index.html            # web chat interface
+├── requirements.txt                # local installation (open versions, flexible across Python versions)
+├── requirements-docker.txt          # Docker dependencies (versions PINNED to match model training)
 ├── Dockerfile, docker-compose.yml
-├── .env.example                     # mẫu khai báo API key
+├── .env.example                    # API key configuration template
 └── README.md
 ```
 
-## 7. Chạy trên máy (không cần Docker)
+## 7. Run Locally (Without Docker)
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Đặt API key (PowerShell — chỉ cần Gemini là đủ):
+Set the API key (PowerShell — only Gemini is required):
+
 ```powershell
 $env:GEMINI_API_KEY="AIza..."
 ```
 
-Chạy web app:
+Start the web app:
+
 ```bash
 python -m src.api
 ```
-Mở trình duyệt: **http://localhost:5000**
 
-Nếu muốn xây lại dataset/model từ đầu:
+Open your browser: **http://localhost:5000**
+
+To rebuild the dataset/model from scratch:
+
 ```bash
 python -m src.data_pipeline
 python -m src.train_models
 ```
 
-## 8. Chạy bằng Docker
+## 8. Run with Docker
 
 ```bash
 cp .env.example .env
-# mở .env, điền GEMINI_API_KEY (bắt buộc); OPENAI_API_KEY, XAI_API_KEY (tuỳ chọn)
+# open .env and enter GEMINI_API_KEY (required); OPENAI_API_KEY, XAI_API_KEY (optional)
 
 docker compose up --build
 ```
-Mở trình duyệt: **http://localhost:5000**
 
-Lần sau chỉ cần `docker compose up` (không cần `--build` nếu không đổi code/dependency).
+Open your browser: **http://localhost:5000**
 
-`requirements-docker.txt` pin đúng version scikit-learn/xgboost khớp với lúc train model
-— tránh cảnh báo `InconsistentVersionWarning` hay gặp khi máy local có version khác.
+Next time, simply run:
 
-## 9. Các endpoint API
-
+```bash
+docker compose up
 ```
-GET  /                              Giao diện chat web
+
+No `--build` is required unless the code or dependencies have changed.
+
+`requirements-docker.txt` pins the exact `scikit-learn/xgboost` versions used when the models were trained — avoiding `InconsistentVersionWarning`, which can occur when the local machine uses different versions.
+
+## 9. API Endpoints
+
+```text
+GET  /                              Web chat interface
 GET  /health
-GET  /models                        Danh sách model + trạng thái đã cấu hình key
+GET  /models                        List available models + API key configuration status
 POST /predict                       {distance_km, customer_state, seller_state, ...}
 GET  /order/<order_id>
 GET  /stats/state/<state>
@@ -196,24 +185,25 @@ GET  /stats/category/<category>
 GET  /stats/top-risky-states?n=5
 GET  /stats/top-risky-categories?n=5
 POST /chat                          {"message": "...", "model": "gemini-2.5-flash"}
-POST /chat/reset                    Xoá lịch sử hội thoại của session hiện tại
+POST /chat/reset                    Clear the current session's conversation history
 ```
 
-Ví dụ:
+Example:
+
 ```bash
 curl -X POST http://localhost:5000/predict \
   -H "Content-Type: application/json" \
   -d '{"distance_km": 1200, "customer_state": "BA", "seller_state": "SP"}'
 ```
 
-## 10. Hướng phát triển tiếp
+## 10. Future Development
 
-- Cân bằng lại precision/recall bằng threshold tuning hoặc cost-sensitive learning
-- Thêm tool `recommend_seller` (chọn seller có lịch sử giao đúng hẹn tốt nhất theo khu vực)
-- Lưu lịch sử hội thoại vào DB thay vì RAM (để chạy được nhiều người dùng đồng thời)
-- Trực quan hoá bản đồ rủi ro theo bang (folium/plotly)
-- Loại bỏ dependency thừa `nvidia-nccl-cu13` (~250MB, không cần thiết cho project CPU-only)
-  để giảm size Docker image
+* Improve the precision/recall balance through threshold tuning or cost-sensitive learning
+* Add a `recommend_seller` tool (select sellers with strong on-time delivery history for a specific region)
+* Store conversation history in a database instead of RAM to support multiple concurrent users
+* Visualize state-level delivery risk maps using Folium/Plotly
+* Remove the unnecessary `nvidia-nccl-cu13` dependency (~250MB, not required for this CPU-only project) to reduce Docker image size
 
 ---
+
 *Dataset: [Brazilian E-Commerce Public Dataset by Olist (Kaggle)](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)*
