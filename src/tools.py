@@ -23,6 +23,20 @@ DATA_PATH = BASE_DIR / "data" / "processed_dataset.csv"
 # parse CSV do vài dòng city name chứa dấu phẩy trong ngoặc kép bị auto-detect sai delimiter/quote.
 DATA_PATH_PARQUET = BASE_DIR / "data" / "processed_dataset.parquet"
 
+# Các file CSV GỐC (chưa gộp) — dùng cho các câu hỏi cần chi tiết mức DÒNG (từng sản phẩm,
+# từng lượt thanh toán...) mà bảng 'orders' (đã gộp mỗi đơn 1 dòng) không còn giữ được.
+# Ví dụ: 1 đơn có 3 sản phẩm thuộc 3 category khác nhau -> bảng 'orders' chỉ lưu category của
+# sản phẩm ĐẦU TIÊN, nên câu hỏi "doanh thu theo category" PHẢI dùng order_items, không dùng orders.
+_RAW_TABLES = {
+    "order_items": "olist_order_items_dataset.csv",
+    "order_payments": "olist_order_payments_dataset.csv",
+    "order_reviews": "olist_order_reviews_dataset.csv",
+    "products": "olist_products_dataset.csv",
+    "sellers": "olist_sellers_dataset.csv",
+    "customers": "olist_customers_dataset.csv",
+    "category_translation": "product_category_name_translation.csv",
+}
+
 # Các cột ngày giờ cần parse lại khi đọc từ CSV (CSV không giữ dtype datetime)
 _DATE_COLUMNS = [
     "order_purchase_timestamp", "order_approved_at", "order_delivered_carrier_date",
@@ -64,7 +78,9 @@ def _load_models():
 
 @lru_cache(maxsize=1)
 def _get_duckdb_conn():
-    """Đăng ký bảng 'orders' = processed_dataset trong DuckDB (đọc trực tiếp CSV, không load lại vào RAM 2 lần)."""
+    """Đăng ký bảng 'orders' (processed_dataset) + các bảng GỐC (order_items, order_payments,
+    order_reviews, products, sellers, customers, category_translation) trong cùng 1 kết nối
+    DuckDB, đọc trực tiếp từ CSV/parquet — không load vào RAM qua pandas."""
     con = duckdb.connect(database=":memory:")
     if DATA_PATH_PARQUET.exists():
         con.execute(f"CREATE VIEW orders AS SELECT * FROM read_parquet('{DATA_PATH_PARQUET.as_posix()}')")
@@ -73,7 +89,21 @@ def _get_duckdb_conn():
             f"CREATE VIEW orders AS SELECT * FROM read_csv_auto("
             f"'{DATA_PATH.as_posix()}', quote='\"', escape='\"', strict_mode=false)"
         )
+
+    for table_name, filename in _RAW_TABLES.items():
+        path = BASE_DIR / "data" / filename
+        if path.exists():
+            con.execute(
+                f"CREATE VIEW {table_name} AS SELECT * FROM read_csv_auto("
+                f"'{path.as_posix()}', quote='\"', escape='\"', strict_mode=false)"
+            )
     return con
+
+
+def _raw_tables_available() -> bool:
+    """True nếu đủ file CSV gốc để trả lời các câu hỏi cần chi tiết mức dòng (không chỉ dùng
+    bảng 'orders' đã gộp). Dùng để tools/providers báo lỗi rõ ràng thay vì lỗi SQL khó hiểu."""
+    return all((BASE_DIR / "data" / f).exists() for f in _RAW_TABLES.values())
 
 
 # Các từ khoá SQL không cho phép (chỉ cho phép truy vấn đọc dữ liệu, không cho sửa/xoá)
@@ -85,34 +115,46 @@ _SQL_FORBIDDEN_KEYWORDS = [
 
 def describe_dataset() -> dict:
     """
-    Liệt kê schema của bảng 'orders' (tên cột, kiểu dữ liệu, vài giá trị mẫu) để agent biết
-    dataset có những trường nào trước khi viết SQL bằng tool `query_dataset_sql`.
-    LUÔN gọi tool này trước nếu chưa chắc tên cột chính xác.
+    Liệt kê schema của bảng 'orders' (đã gộp mỗi đơn 1 dòng) VÀ các bảng gốc chi tiết mức
+    dòng (order_items, order_payments, order_reviews, products, sellers, customers,
+    category_translation) để agent biết dataset có những trường/bảng nào trước khi viết SQL
+    bằng tool `query_dataset_sql`. LUÔN gọi tool này trước nếu chưa chắc tên bảng/cột.
     """
     con = _get_duckdb_conn()
-    schema = con.execute("DESCRIBE orders").fetchdf()
-    sample = con.execute("SELECT * FROM orders LIMIT 3").fetchdf()
-    return {
-        "n_rows": con.execute("SELECT COUNT(*) FROM orders").fetchone()[0],
-        "columns": [
-            {"name": row["column_name"], "type": row["column_type"]}
-            for _, row in schema.iterrows()
-        ],
-        "sample_rows": sample.to_dict(orient="records"),
-        "notes": (
-            "Bảng chứa cả đơn chưa giao (order_status != 'delivered'); is_late và "
-            "actual_delivery_days chỉ có giá trị (không NULL) với đơn đã 'delivered'. "
-            "Dùng WHERE order_status = 'delivered' khi tính tỉ lệ trễ / thời gian giao thực tế."
-        ),
-    }
+    tables = ["orders"] + [t for t in _RAW_TABLES if (BASE_DIR / "data" / _RAW_TABLES[t]).exists()]
+
+    result = {"tables": {}}
+    for table in tables:
+        schema = con.execute(f"DESCRIBE {table}").fetchdf()
+        result["tables"][table] = {
+            "n_rows": con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0],
+            "columns": [{"name": r["column_name"], "type": r["column_type"]} for _, r in schema.iterrows()],
+        }
+
+    # Giữ tương thích ngược: các key cũ (n_rows, columns, sample_rows) vẫn trỏ về bảng 'orders'.
+    result["n_rows"] = result["tables"]["orders"]["n_rows"]
+    result["columns"] = result["tables"]["orders"]["columns"]
+    result["sample_rows"] = con.execute("SELECT * FROM orders LIMIT 3").fetchdf().to_dict(orient="records")
+    result["notes"] = (
+        "Bảng 'orders' chứa cả đơn chưa giao (order_status != 'delivered'); is_late và "
+        "actual_delivery_days chỉ có giá trị (không NULL) với đơn đã 'delivered'. "
+        "Dùng WHERE order_status = 'delivered' khi tính tỉ lệ trễ / thời gian giao thực tế. "
+        "QUAN TRỌNG: bảng 'orders' đã GỘP mỗi đơn thành 1 dòng — category/seller trong đó chỉ "
+        "là của SẢN PHẨM ĐẦU TIÊN trong đơn, KHÔNG chính xác cho đơn có nhiều sản phẩm/nhiều "
+        "seller/nhiều category khác nhau. Với câu hỏi về doanh thu/số lượng THEO category, "
+        "THEO seller, THEO sản phẩm, hoặc cần đối chiếu payment với price+freight ở mức dòng, "
+        "PHẢI JOIN từ bảng order_items (mỗi dòng = 1 sản phẩm trong đơn) thay vì dùng 'orders'."
+    )
+    return result
 
 
 def query_dataset_sql(sql: str) -> dict:
     """
-    Chạy một câu SQL (SELECT hoặc WITH...SELECT) TUỲ Ý trên bảng 'orders' (processed_dataset)
-    để trả lời bất kỳ câu hỏi thống kê/lọc/nhóm nào không có sẵn tool riêng —
-    ví dụ so sánh theo tháng, theo phương thức thanh toán, theo cân nặng sản phẩm, v.v.
-    Luôn gọi `describe_dataset` trước nếu chưa biết chính xác tên cột.
+    Chạy một câu SQL (SELECT hoặc WITH...SELECT) TUỲ Ý trên các bảng có sẵn: 'orders'
+    (đã gộp mỗi đơn 1 dòng) và các bảng gốc mức dòng — 'order_items', 'order_payments',
+    'order_reviews', 'products', 'sellers', 'customers', 'category_translation' — để trả
+    lời bất kỳ câu hỏi thống kê/lọc/nhóm/JOIN nào không có sẵn tool riêng.
+    Luôn gọi `describe_dataset` trước nếu chưa biết chính xác tên bảng/cột.
     Kết quả giới hạn 200 dòng để tránh trả về quá nhiều dữ liệu.
     """
     cleaned = sql.strip().rstrip(";")
