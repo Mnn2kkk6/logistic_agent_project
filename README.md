@@ -1,13 +1,13 @@
 # AI Logistics Agent — Olist E-commerce Dataset
 
-A local web app combining **Machine Learning** (delivery risk prediction) and a **multi-model conversational AI Agent** (Gemini / GPT-4o / Grok — automatically switch models when one provider runs out of quota) to support logistics operations for an e-commerce platform, built on the **Olist Brazilian E-commerce** dataset (~99K orders, Kaggle).
+A local web app combining **Machine Learning** (delivery risk prediction) and a **multi-model conversational AI Agent** (Gemini / GPT-4o / Grok / Groq — automatically switch models when one provider runs out of quota) to support logistics operations for an e-commerce platform, built on the **Olist Brazilian E-commerce** dataset (~99K orders, Kaggle).
 
 ## 1. Key Features
 
 * **Predict delivery risk + delivery time** for a new order (before shipment)
 * **Vietnamese conversational Q&A** through the web interface, with the agent automatically calling the appropriate tool
-* **Flexible model selection** directly from the UI: Gemini Flash/Flash-Lite/2.0, GPT-4o/mini, Grok 4 Fast/4.6, and **Local (rule-based, free, offline)** — switch models when one provider runs out of quota without losing conversation context
-* **Automatic SQL generation** to answer analytical questions without a dedicated tool (monthly comparisons, payment methods, product weight...)
+* **Flexible model selection** directly from the UI: Gemini Flash/Flash-Lite/2.0, GPT-4o/mini, Grok 4 Fast/4.6, GPT-OSS 120B/20B (Groq, free), and **Local (rule-based, free, offline)** — switch models mid-conversation without losing context
+* **Automatic SQL generation** (DuckDB, read-only) to answer analytical questions without a dedicated tool — monthly comparisons, payment methods, product weight, multi-table joins, etc.
 * **Quickly train temporary models** for other targets/subsets beyond the two main models (e.g. predicting `review_score`, or training only for one state)
 * **Dockerized deployment** — run with one command without manually installing Python/dependencies
 
@@ -22,6 +22,7 @@ Flask API (src/api.py)  ──►  src/providers.py (multi-model abstraction lay
         │                         ├─ Gemini (google-genai)
         │                         ├─ OpenAI (GPT-4o / GPT-4o mini)
         │                         ├─ xAI/Grok (OpenAI-compatible endpoint)
+        │                         ├─ Groq (OpenAI-compatible endpoint, free tier)
         │                         └─ Local (regex/rule-based, no API call — always available)
         │
         ▼
@@ -31,10 +32,10 @@ Flask API (src/api.py)  ──►  src/providers.py (multi-model abstraction lay
      describe_dataset · query_dataset_sql (DuckDB, SELECT only) · train_custom_model
         │
         ▼
-   data/processed_dataset.csv  +  models/*.joblib (XGBoost)
+   data/processed_dataset.csv + raw CSVs  +  models/*.joblib (XGBoost)
 ```
 
-**Conversation history is stored in "canonical" format** (text only, provider-independent) in `src/providers.py`, so switching models in the middle of a conversation does not break the format — the trade-off is that the new model will not "remember" internal tool calls from previous turns, only the text-based conversation history.
+**Conversation history is stored in a "canonical" format** (text only, provider-independent) in `src/providers.py`, so switching models mid-conversation doesn't break the format. Trade-off: the new model won't "remember" internal tool calls from previous turns, only the text-based conversation history.
 
 ## 3. Problem & Data
 
@@ -43,87 +44,79 @@ The original dataset contains 9 CSV tables (orders, order_items, payments, revie
 * Seller → customer distance (Haversine, based on average zip-code coordinates)
 * Product volume/weight, number of items, total order value/shipping/payment amounts
 * Order-time features: weekday, month, hour
-* **Labels:** `is_late` (delivered later than the estimated date) and `actual_delivery_days` (actual delivery duration in days) — only available for delivered orders (`delivered`)
+* **Labels:** `is_late` (delivered later than the estimated date) and `actual_delivery_days` (actual delivery duration in days) — only available for delivered orders
 
-All features used for training contain only information **available at order placement time** — accurately simulating a real-world scenario where delivery risk is evaluated *before* shipment.
+All training features contain only information **available at order placement time** — simulating a real-world scenario where delivery risk is evaluated *before* shipment.
+
+For row-level analysis (per-product, per-seller, per-payment) that the merged `orders` table can't represent, the raw CSVs are also registered as DuckDB views (`order_items`, `order_payments`, `order_reviews`, `products`, `sellers`, `customers`, `category_translation`) and are queryable through `query_dataset_sql`.
+
+> **Note:** `olist_geolocation_dataset.csv` is used by `data_pipeline.py` to compute `distance_km`, but is **not currently registered** as a queryable DuckDB view. Zip-prefix-level geographic questions (e.g. "compare late-delivery rate by distance bucket using raw geolocation data") can't be answered via `query_dataset_sql` yet — see Known Limitations.
 
 ## 4. ML Models (XGBoost)
 
-| Model                      | File                                     | Objective                             | Test Set Results                                |
-| -------------------------- | ---------------------------------------- | ------------------------------------- | ----------------------------------------------- |
-| `late_delivery_classifier` | `models/late_delivery_classifier.joblib` | Probability of late delivery (binary) | ROC-AUC **0.788**, Recall **0.67**, F1 **0.31** |
-| `delivery_days_regressor`  | `models/delivery_days_regressor.joblib`  | Actual delivery time in days          | MAE **4.74 days**, RMSE **7.58 days**           |
+| Model                       | File                                      | Objective                               | Test Set Results                                |
+|------------------------------|-------------------------------------------|------------------------------------------|---------------------------------------------------|
+| `late_delivery_classifier`   | `models/late_delivery_classifier.joblib`  | Probability of late delivery (binary)     | ROC-AUC **0.788**, Recall **0.67**, F1 **0.31**    |
+| `delivery_days_regressor`    | `models/delivery_days_regressor.joblib`   | Actual delivery time in days              | MAE **4.74 days**, RMSE **7.58 days**              |
 
-Both are `sklearn.Pipeline` models (ColumnTransformer + XGBClassifier/XGBRegressor), trained on 96,470 delivered orders using an 80/20 train/test split. Due to class imbalance (~8% late orders), the classifier uses `scale_pos_weight` to prioritize higher recall over precision. Full details: `models/model_metadata.json`.
+Both are `sklearn.Pipeline` models (`ColumnTransformer` + `XGBClassifier`/`XGBRegressor`), trained on 96,470 delivered orders (80/20 split). Due to class imbalance (~8% late orders), the classifier uses `scale_pos_weight` to prioritize recall over precision. Full details: `models/model_metadata.json`.
 
 ## 5. Chat Model Support
 
-| Model                        | Key Required      | Notes                                                                                                     |
-| ---------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------- |
-| Gemini 2.5 Flash *(default)* | `GEMINI_API_KEY`  | Free — [get it here](https://aistudio.google.com/apikey)                                                  |
-| Gemini 2.5 Flash-Lite        | `GEMINI_API_KEY`  | Free, higher quota — used when Flash runs out of quota                                                    |
-| Gemini 2.0 Flash             | `GEMINI_API_KEY`  | Free, previous-generation fallback                                                                        |
-| GPT-4o mini                  | `OPENAI_API_KEY`  | Paid — [platform.openai.com](https://platform.openai.com/api-keys)                                        |
-| GPT-4o                       | `OPENAI_API_KEY`  | Paid, highest quality                                                                                     |
-| Grok 4 Fast                  | `XAI_API_KEY`     | Paid — [console.x.ai](https://console.x.ai) (requires credits)                                            |
-| Grok 4.6                     | `XAI_API_KEY`     | Paid, xAI's strongest model                                                                               |
-| Local (rule-based)           | *no key required* | Free, fully offline — final fallback when all other free/paid providers run out of quota. See Section 5.1 |
+| Model                          | Key Required       | Cost / Notes                                                                 |
+|----------------------------------|---------------------|--------------------------------------------------------------------------------|
+| Gemini 2.5 Flash *(default)*     | `GEMINI_API_KEY`     | Free — [aistudio.google.com/apikey](https://aistudio.google.com/apikey)         |
+| Gemini 2.5 Flash-Lite             | `GEMINI_API_KEY`     | Free, higher quota — fallback when Flash runs out                               |
+| Gemini 2.0 Flash                  | `GEMINI_API_KEY`     | Free, previous-generation fallback                                              |
+| GPT-4o mini                        | `OPENAI_API_KEY`     | Paid, low cost                                                                   |
+| GPT-4o                              | `OPENAI_API_KEY`     | Paid, highest quality                                                            |
+| Grok 4 Fast                         | `XAI_API_KEY`         | Paid — [console.x.ai](https://console.x.ai) (requires credits)                  |
+| Grok 4.6                            | `XAI_API_KEY`         | Paid, xAI's strongest model                                                      |
+| GPT-OSS 120B (Groq)                  | `GROQ_API_KEY`         | Free (~14,400 req/day), runs on Groq's fast inference hardware                   |
+| GPT-OSS 20B (Groq)                    | `GROQ_API_KEY`         | Free, smaller/faster — fallback when 120B is rate-limited                       |
+| Local (rule-based)                     | *no key required*      | Free, fully offline — final fallback. See §5.1 and Known Limitations            |
 
-Only **1 key** (Gemini, free) is required to use the full feature set. Other keys are optional and serve as fallbacks when Gemini runs out of quota. Models without a configured key will appear as `(no key)` in the dropdown and return a clear error if selected. **Local** is always available and does not depend on any API key.
+Only **1 key** (Gemini, free) is required for full functionality. Other keys are optional fallbacks. Models without a configured key show `(no key)` in the dropdown and return a clear error if selected.
 
 ### 5.1. Local Mode (rule-based) — How It Works
 
-It does not call any LLM/API — it only detects fixed keywords/patterns (regex) to determine which tool should be called. Therefore, it **does not understand natural language as flexibly** as real AI models.
+Calls no LLM/API — only detects fixed keywords/patterns (regex) to pick which tool to call. It does **not** understand free-form natural language, and always available even offline or when every paid/free provider is out of quota.
 
-In return, it is always available, even when the external network is unavailable or all other free/paid providers have exhausted their quotas.
+Supported query patterns include: new-order prediction, order/seller/category lookup, top-N riskiest states/categories, compare 2 states/categories, late-delivery rate by month/weekday/hour, same-state vs cross-state, installment count effect, product weight effect, review score by state/category, dataset overview/schema — plus 8 hardcoded multi-table analytical queries (2018 top categories, seller revenue-vs-review outliers, state spend-vs-delivery-time, top products outside top categories, freight-bucket delay comparison, seller processing time, high-price/low-review products).
 
-Supported query patterns:
+Queries that don't match any pattern return a list of example queries and a suggestion to switch to a real AI model for more flexible questions.
 
-| Category                             | Example Query                                                   |
-| ------------------------------------ | --------------------------------------------------------------- |
-| New order prediction                 | "Predict an order for customer RJ, seller SP, distance 900km"   |
-| Look up an order                     | "Look up order <order_id>"                                      |
-| Seller statistics                    | "Statistics for seller <seller_id>"                             |
-| Specific product category statistics | "How does the audio category perform?"                          |
-| Top N riskiest states / categories   | "Top 5 riskiest states", "Which category has the most delays?"  |
-| Compare 2 states                     | "Compare RJ and SP"                                             |
-| Compare 2 categories                 | "Compare audio and food"                                        |
-| Statistics for a specific state      | "Statistics for state RJ"                                       |
-| Late deliveries by month             | "Late delivery rate by month"                                   |
-| Late deliveries by weekday           | "Which weekday has the most delays?"                            |
-| Late deliveries by order hour        | "Which time of day is most likely to be late?"                  |
-| Same-state vs cross-state            | "Are same-state deliveries less likely to be late?"             |
-| Effect of installment count          | "Do more installments affect delivery time?"                    |
-| Effect of product weight             | "Are heavier orders more likely to be late?"                    |
-| Review score by state/category       | "Which state has the lowest customer ratings?"                  |
-| Dataset overview                     | "How many orders are there?", "What years does the data cover?" |
-| Dataset structure                    | "How many columns are in the dataset?"                          |
+## 6. Known Limitations
 
-Queries that do not match any supported pattern will return a list of example queries above, together with a recommendation to switch to a real AI model (Gemini/GPT/Grok) for more flexible and complex questions.
+* **Local mode keyword matching can mis-fire on complex analytical questions.** Rules like "contains `review`" or "contains `freight` + `nhóm`" are broad enough to catch questions that are topically adjacent but actually asking something different (e.g. a question about payment methods that happens to mention "review" gets answered with an unrelated state-review ranking). If you add new analytical stress-test questions, verify Local mode's response actually matches the question before trusting it — when in doubt, switch to a real model.
+* **`query_dataset_sql` depends on the LLM writing valid DuckDB SQL.** Complex multi-CTE joins occasionally trip up smaller/free models, and very long tool-call arguments (long SQL strings) can occasionally come back as malformed JSON from OpenAI-compatible endpoints (observed with Groq's free models on nested-query questions), which currently isn't caught and can surface as a generic server error instead of a graceful message.
+* **`olist_geolocation_dataset.csv` isn't exposed via `query_dataset_sql`** — only the pre-aggregated `distance_km` derived from it during the data pipeline is available.
+* **In-memory chat history** (`_CHAT_HISTORY` dict in `api.py`) is per-process — restarting the container clears everyone's conversations, and it isn't safe for multiple concurrent real users.
 
-## 6. Project Structure
+## 7. Project Structure
 
 ```text
 logistics_agent/
-├── data/                          # processed_dataset.csv + category translation table
-├── models/                        # trained .joblib models + model_metadata.json
+├── data/                            # raw CSVs + processed_dataset.csv
+├── models/                          # trained .joblib models + model_metadata.json
 ├── src/
-│   ├── data_pipeline.py           # load, merge, feature engineering
-│   ├── train_models.py            # train classifier + regressor
-│   ├── tool_schemas.py            # TOOLS (JSON Schema) + shared SYSTEM_PROMPT
-│   ├── tools.py                   # business functions (ML prediction, statistics, SQL, temporary training)
-│   ├── providers.py                # multi-model abstraction layer (Gemini/OpenAI/xAI)
-│   ├── api.py                      # Flask API + web UI server — MAIN ENTRY POINT
-│   ├── agent.py, agent_gemini.py   # old CLI versions (terminal-based, no web UI)
-├── templates/index.html            # web chat interface
-├── requirements.txt                # local installation (open versions, flexible across Python versions)
-├── requirements-docker.txt          # Docker dependencies (versions PINNED to match model training)
+│   ├── __init__.py
+│   ├── data_pipeline.py             # load, merge, feature engineering
+│   ├── train_models.py              # train classifier + regressor
+│   ├── tool_schemas.py              # TOOLS (JSON Schema) + shared SYSTEM_PROMPT
+│   ├── tools.py                     # business functions (ML prediction, statistics, SQL, temp training)
+│   ├── providers.py                 # multi-model abstraction layer (Gemini/OpenAI/xAI/Groq/Local)
+│   ├── api.py                       # Flask API + web UI server — MAIN ENTRY POINT
+│   ├── agent.py, agent_gemini.py    # legacy CLI-only prototypes (terminal-based, predate providers.py — not used by api.py)
+├── templates/index.html             # web chat interface
+├── requirements.txt                 # local installation (open version ranges)
+├── requirements-docker.txt          # Docker dependencies (versions pinned to match trained models)
 ├── Dockerfile, docker-compose.yml
-├── .env.example                    # API key configuration template
+├── .env.example                     # API key configuration template
 └── README.md
 ```
 
-## 7. Run Locally (Without Docker)
+## 8. Run Locally (Without Docker)
 
 ```bash
 pip install -r requirements.txt
@@ -150,11 +143,11 @@ python -m src.data_pipeline
 python -m src.train_models
 ```
 
-## 8. Run with Docker
+## 9. Run with Docker
 
 ```bash
 cp .env.example .env
-# open .env and enter GEMINI_API_KEY (required); OPENAI_API_KEY, XAI_API_KEY (optional)
+# open .env and enter GEMINI_API_KEY (required); OPENAI_API_KEY, XAI_API_KEY, GROQ_API_KEY (optional)
 
 docker compose up --build
 ```
@@ -167,11 +160,11 @@ Next time, simply run:
 docker compose up
 ```
 
-No `--build` is required unless the code or dependencies have changed.
+No `--build` needed unless code or dependencies changed.
 
-`requirements-docker.txt` pins the exact `scikit-learn/xgboost` versions used when the models were trained — avoiding `InconsistentVersionWarning`, which can occur when the local machine uses different versions.
+`requirements-docker.txt` pins the exact `scikit-learn`/`xgboost` versions used to train the models — avoiding `InconsistentVersionWarning` that can occur when the local machine uses different versions.
 
-## 9. API Endpoints
+## 10. API Endpoints
 
 ```text
 GET  /                              Web chat interface
@@ -196,13 +189,15 @@ curl -X POST http://localhost:5000/predict \
   -d '{"distance_km": 1200, "customer_state": "BA", "seller_state": "SP"}'
 ```
 
-## 10. Future Development
+## 11. Future Development
 
-* Improve the precision/recall balance through threshold tuning or cost-sensitive learning
-* Add a `recommend_seller` tool (select sellers with strong on-time delivery history for a specific region)
-* Store conversation history in a database instead of RAM to support multiple concurrent users
-* Visualize state-level delivery risk maps using Folium/Plotly
-* Remove the unnecessary `nvidia-nccl-cu13` dependency (~250MB, not required for this CPU-only project) to reduce Docker image size
+* Fix `api.py`/`providers.py` error handling so malformed tool-call JSON or unexpected provider errors return a clean JSON error instead of a raw HTML 500 page
+* Tighten Local mode's keyword rules (or fall back to "I don't understand" more conservatively) to avoid confidently answering the wrong question
+* Register `olist_geolocation_dataset.csv` as a DuckDB view for zip-level geographic analysis
+* Improve precision/recall balance via threshold tuning or cost-sensitive learning
+* Add a `recommend_seller` tool (sellers with the strongest on-time delivery history for a given region)
+* Store conversation history in a database instead of in-process RAM, to support multiple concurrent users
+* Visualize state-level delivery risk maps (Folium/Plotly)
 
 ---
 
