@@ -111,18 +111,27 @@ TOOLS = [
     {
         "name": "describe_dataset",
         "description": (
-            "Liệt kê tên cột, kiểu dữ liệu và vài dòng mẫu của dataset. Gọi tool này TRƯỚC "
-            "khi dùng query_dataset_sql nếu chưa chắc chắn tên cột chính xác."
+            "Liệt kê TẤT CẢ các bảng khả dụng (orders đã gộp + order_items, order_payments, "
+            "order_reviews, products, sellers, customers, category_translation ở mức dòng gốc), "
+            "kèm tên cột, kiểu dữ liệu, vài dòng mẫu. Gọi tool này TRƯỚC khi dùng query_dataset_sql "
+            "nếu chưa chắc chắn tên bảng/cột chính xác — đặc biệt QUAN TRỌNG khi câu hỏi liên quan "
+            "đến doanh thu/số lượng theo category, theo seller, theo sản phẩm, hoặc cần join "
+            "nhiều bảng, vì bảng 'orders' đã gộp KHÔNG đủ chính xác cho các trường hợp này."
         ),
         "input_schema": {"type": "object", "properties": {}},
     },
     {
         "name": "query_dataset_sql",
         "description": (
-            "Chạy một câu SQL (SELECT hoặc WITH...SELECT) tuỳ ý trên bảng 'orders' để trả lời "
-            "BẤT KỲ câu hỏi thống kê/lọc/nhóm nào không có sẵn tool riêng — ví dụ so sánh theo "
-            "tháng, theo phương thức thanh toán, theo cân nặng sản phẩm, tương quan giữa 2 biến, "
-            "v.v. Chỉ cho phép câu lệnh đọc dữ liệu (SELECT)."
+            "Chạy một câu SQL (SELECT hoặc WITH...SELECT) tuỳ ý trên các bảng có sẵn — 'orders' "
+            "(đã gộp mỗi đơn 1 dòng) hoặc các bảng gốc mức dòng 'order_items', 'order_payments', "
+            "'order_reviews', 'products', 'sellers', 'customers', 'category_translation' — để trả "
+            "lời BẤT KỲ câu hỏi thống kê/lọc/nhóm/JOIN nào không có sẵn tool riêng. QUAN TRỌNG: "
+            "bảng 'orders' chỉ lưu category/seller của SẢN PHẨM ĐẦU TIÊN mỗi đơn — với câu hỏi về "
+            "doanh thu/số lượng THEO category, THEO seller, THEO sản phẩm cụ thể, hoặc cần đối "
+            "chiếu payment với price+freight ở mức dòng, BẮT BUỘC phải JOIN từ order_items (mỗi "
+            "dòng = 1 sản phẩm trong đơn), KHÔNG được dùng category/seller trong bảng 'orders'. "
+            "Chỉ cho phép câu lệnh đọc dữ liệu (SELECT)."
         ),
         "input_schema": {
             "type": "object",
