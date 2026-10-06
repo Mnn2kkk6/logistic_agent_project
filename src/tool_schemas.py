@@ -23,6 +23,11 @@ Nhiệm vụ:
   chỉ train riêng cho 1 khu vực/ngành hàng), dùng `train_custom_model` để train nhanh
   một model tạm và báo cáo metric + feature quan trọng nhất — không dùng để thay thế
   2 model production chính.
+- Khi câu hỏi cần thông tin bên ngoài dataset Olist hoặc thông tin hiện tại trên Internet
+  (ví dụ: tin tức logistics, chính sách vận chuyển, thông tin công ty, kiến thức ngành
+  không có trong dữ liệu nội bộ), hãy dùng tool `web_search`.
+  Không dùng `web_search` cho các câu hỏi có thể trả lời bằng dataset nội bộ hoặc các tool
+  analytics hiện có.
 - Luôn trả lời bằng tiếng Việt, ngắn gọn, có số liệu cụ thể, không bịa dữ liệu.
 - Nếu tool trả về found=False, error, hoặc không có dữ liệu, hãy nói rõ với người dùng.
 """
@@ -138,6 +143,29 @@ TOOLS = [
             "type": "object",
             "properties": {"sql": {"type": "string", "description": "Câu lệnh SQL (SELECT ...) trên bảng 'orders'"}},
             "required": ["sql"],
+        },
+    },
+    {
+        "name": "web_search",
+        "description": (
+            "Tìm kiếm thông tin trên Internet bằng Tavily khi câu hỏi nằm ngoài phạm vi "
+            "dataset Olist hoặc cần thông tin hiện tại. Không dùng tool này cho các câu hỏi "
+            "có thể trả lời bằng dữ liệu nội bộ."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Câu truy vấn cần tìm trên Internet",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "default": 5,
+                    "description": "Số kết quả tối đa, từ 1 đến 10",
+                },
+            },
+            "required": ["query"],
         },
     },
     {
