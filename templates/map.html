@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bản đồ luồng đơn hàng — AI Logistics Agent</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<style>
+  :root {
+    --bg: #0F151E; --panel: #161F2B; --panel-2: #1C2733; --border: #263241;
+    --text: #E7EAEF; --muted: #8B96A6; --teal: #2FBFA0; --amber: #E8A23D; --red: #E0615A;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font-family: var(--sans); background: var(--bg); color: var(--text); }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; }
+  header a { color: var(--muted); text-decoration: none; font-size: 13px; }
+  header a:hover { color: var(--teal); }
+
+  .banner {
+    background: rgba(232, 162, 61, 0.1); border-bottom: 1px solid rgba(232, 162, 61, 0.3);
+    color: var(--amber); font-size: 12.5px; padding: 8px 20px; text-align: center;
+  }
+
+  #map { height: calc(100vh - 92px); width: 100%; background: var(--bg); }
+
+  .controls {
+    position: absolute; top: 110px; left: 16px; z-index: 1000;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; font-size: 13px; max-width: 260px; box-shadow: 0 4px 16px rgba(0,0,0,.4);
+  }
+  .controls .title { font-weight: 700; margin-bottom: 6px; }
+  .controls .sub { color: var(--muted); font-size: 12px; margin-bottom: 10px; line-height: 1.5; }
+  .controls button {
+    background: var(--teal); color: #06251E; border: none; font-weight: 600; font-size: 12.5px;
+    padding: 7px 12px; border-radius: 7px; cursor: pointer; width: 100%;
+  }
+  .controls button:disabled { opacity: .4; cursor: default; }
+  .controls .stat { display: flex; justify-content: space-between; margin: 3px 0; color: var(--muted); }
+  .controls .stat b { color: var(--text); }
+
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--panel-2); color: var(--text); }
+  .leaflet-popup-content { font-size: 12.5px; line-height: 1.6; }
+  .leaflet-popup-content b { color: var(--teal); }
+  .leaflet-tooltip { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); font-size: 12px; }
+
+  .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); color: var(--muted); z-index: 999; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🗺️ Bản đồ luồng đơn hàng — Olist</h1>
+  <a href="/">← Quay lại chat</a>
+</header>
+<div class="banner">
+  Mô phỏng minh hoạ dựa trên toạ độ trung bình theo khu vực (zip code) — không phải vị trí GPS thời gian thực của đơn hàng.
+</div>
+
+<div style="position:relative;">
+  <div id="map"></div>
+  <div class="loading" id="loadingMsg">Đang tải dữ liệu luồng đơn hàng…</div>
+
+  <div class="controls" id="controls" style="display:none;">
+    <div class="title" id="ctrlTitle">Luồng theo bang (toàn quốc)</div>
+    <div class="sub" id="ctrlSub">Hover để xem nhanh, bấm vào 1 luồng để xem từng đơn hàng mẫu di chuyển.</div>
+    <div id="ctrlStats"></div>
+    <button id="backBtn" style="display:none; margin-top:8px;">← Quay lại tổng thể</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const map = L.map('map', { zoomControl: true }).setView([-14.5, -51.9], 4.3);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap', opacity: 0.55,
+}).addTo(map);
+
+const controls = document.getElementById('controls');
+const ctrlTitle = document.getElementById('ctrlTitle');
+const ctrlSub = document.getElementById('ctrlSub');
+const ctrlStats = document.getElementById('ctrlStats');
+const backBtn = document.getElementById('backBtn');
+const loadingMsg = document.getElementById('loadingMsg');
+
+let flowLayer = L.layerGroup().addTo(map);
+let detailLayer = L.layerGroup().addTo(map);
+let animHandles = [];
+let allFlows = [];
+
+function colorForLateRate(pct) {
+  // 0% -> xanh teal, >=20% -> đỏ, nội suy tuyến tính qua vàng
+  const t = Math.max(0, Math.min(1, pct / 20));
+  const r = Math.round(47 + t * (224 - 47));
+  const g = Math.round(191 + t * (97 - 191));
+  const b = Math.round(160 + t * (90 - 160));
+  return `rgb(${r},${g},${b})`;
+}
+
+function stopAnimations() {
+  animHandles.forEach(h => cancelAnimationFrame(h));
+  animHandles = [];
+}
+
+// ========== Màn hình tổng thể: luồng gộp theo bang ==========
+async function loadFlowMap() {
+  loadingMsg.style.display = 'block';
+  const res = await fetch('/api/map/flows');
+  const data = await res.json();
+  allFlows = data.flows || [];
+  loadingMsg.style.display = 'none';
+  controls.style.display = 'block';
+  renderAggregateView();
+}
+
+function renderAggregateView() {
+  stopAnimations();
+  detailLayer.clearLayers();
+  flowLayer.clearLayers();
+  backBtn.style.display = 'none';
+  ctrlTitle.textContent = 'Luồng theo bang (toàn quốc)';
+  ctrlSub.textContent = 'Hover để xem nhanh, bấm vào 1 luồng để xem từng đơn hàng mẫu di chuyển.';
+  ctrlStats.innerHTML = `<div class="stat">Tổng số luồng<b>${allFlows.length}</b></div>`;
+
+  const maxN = Math.max(...allFlows.map(f => f.n_orders));
+
+  allFlows.forEach(f => {
+    const weight = 1 + 7 * Math.log1p(f.n_orders) / Math.log1p(maxN);
+    const color = colorForLateRate(f.late_rate_pct);
+    let layer;
+
+    if (f.from_state === f.to_state) {
+      layer = L.circleMarker([f.from_lat, f.from_lng], {
+        radius: 4 + 10 * Math.log1p(f.n_orders) / Math.log1p(maxN),
+        color, weight: 1, fillColor: color, fillOpacity: 0.35,
+      });
+    } else {
+      layer = L.polyline([[f.from_lat, f.from_lng], [f.to_lat, f.to_lng]], {
+        color, weight, opacity: 0.55,
+      });
+    }
+
+    layer.bindTooltip(
+      `${f.from_state} → ${f.to_state}: ${f.n_orders.toLocaleString()} đơn, ${f.late_rate_pct}% trễ`,
+      { sticky: true }
+    );
+    layer.on('click', () => loadOrderSample(f.from_state, f.to_state));
+    layer.on('mouseover', function () { this.setStyle ? this.setStyle({ opacity: 1, fillOpacity: 0.6 }) : null; });
+    layer.on('mouseout', function () { this.setStyle ? this.setStyle({ opacity: 0.55, fillOpacity: 0.35 }) : null; });
+    layer.addTo(flowLayer);
+  });
+}
+
+// ========== Màn hình chi tiết: animation từng đơn trong 1 cặp bang ==========
+async function loadOrderSample(fromState, toState) {
+  loadingMsg.style.display = 'block';
+  const res = await fetch(`/api/map/sample?from=${fromState}&to=${toState}&limit=40`);
+  const data = await res.json();
+  loadingMsg.style.display = 'none';
+  renderDetailView(fromState, toState, data.orders || []);
+}
+
+function renderDetailView(fromState, toState, orders) {
+  stopAnimations();
+  flowLayer.clearLayers();
+  detailLayer.clearLayers();
+  backBtn.style.display = 'block';
+
+  const lateCount = orders.filter(o => o.is_late == 1).length;
+  ctrlTitle.textContent = `${fromState} → ${toState}`;
+  ctrlSub.textContent = `${orders.length} đơn hàng mẫu — chấm xanh = đúng hẹn, chấm đỏ = trễ. Tốc độ chạy tỉ lệ với thời gian giao thực tế. Hover/bấm vào đường nối để xem chi tiết.`;
+  ctrlStats.innerHTML = `
+    <div class="stat">Đơn mẫu<b>${orders.length}</b></div>
+    <div class="stat">Trong đó trễ<b>${lateCount}</b></div>
+  `;
+
+  if (!orders.length) return;
+
+  const bounds = [];
+  const maxDays = Math.max(...orders.map(o => o.actual_delivery_days || 1));
+  const minDays = Math.min(...orders.map(o => o.actual_delivery_days || 1));
+
+  orders.forEach(o => {
+    const from = [o.seller_lat, o.seller_lng];
+    const to = [o.customer_lat, o.customer_lng];
+    bounds.push(from, to);
+    const color = o.is_late == 1 ? '#E0615A' : '#2FBFA0';
+
+    const line = L.polyline([from, to], { color, weight: 1.5, opacity: 0.35 });
+    line.bindTooltip(
+      `${o.seller_city}, ${o.seller_state} → ${o.customer_city}, ${o.customer_state}`,
+      { sticky: true }
+    );
+    line.on('click', () => showOrderDetail(o));
+    line.addTo(detailLayer);
+
+    // Chấm animation chạy dọc đường — tốc độ tỉ lệ nghịch với số ngày giao thực tế
+    // (giao nhanh -> chạy nhanh), chuẩn hoá về khoảng 2.5s (nhanh nhất) - 9s (chậm nhất).
+    const days = o.actual_delivery_days || minDays;
+    const norm = maxDays > minDays ? (days - minDays) / (maxDays - minDays) : 0;
+    const durationMs = 2500 + norm * 6500;
+
+    const dot = L.circleMarker(from, { radius: 5, color, fillColor: color, fillOpacity: 0.9, weight: 1 }).addTo(detailLayer);
+    dot.bindTooltip(`${o.seller_city} → ${o.customer_city} (${days.toFixed(1)} ngày${o.is_late == 1 ? ', TRỄ' : ''})`);
+    dot.on('click', () => showOrderDetail(o));
+
+    let start = null;
+    function step(ts) {
+      if (!start) start = ts;
+      let t = ((ts - start) % durationMs) / durationMs;
+      const lat = from[0] + (to[0] - from[0]) * t;
+      const lng = from[1] + (to[1] - from[1]) * t;
+      dot.setLatLng([lat, lng]);
+      animHandles.push(requestAnimationFrame(step));
+    }
+    animHandles.push(requestAnimationFrame(step));
+  });
+
+  if (bounds.length) map.fitBounds(bounds, { padding: [40, 40] });
+}
+
+function showOrderDetail(o) {
+  const lateTxt = o.is_late == 1
+    ? `<span style="color:#E0615A">CÓ — trễ</span>`
+    : `<span style="color:#2FBFA0">Không — đúng hẹn</span>`;
+  const html = `
+    <b>Đơn hàng</b> ${o.order_id.slice(0, 16)}...<br/>
+    Từ: ${o.seller_city}, ${o.seller_state}<br/>
+    Đến: ${o.customer_city}, ${o.customer_state}<br/>
+    Khoảng cách: ${o.distance_km ? o.distance_km.toFixed(0) : '?'} km<br/>
+    Ngành hàng: ${o.product_category || 'không rõ'}<br/>
+    Giá sản phẩm: ${o.total_price} | Phí ship: ${o.total_freight}<br/>
+    Tổng thanh toán: ${o.payment_value}<br/>
+    Đặt hàng: ${(o.order_purchase_timestamp || '').slice(0, 10)}<br/>
+    Giao thực tế: ${(o.order_delivered_customer_date || '').slice(0, 10)}<br/>
+    Hẹn giao: ${(o.order_estimated_delivery_date || '').slice(0, 10)}<br/>
+    Giao trễ: ${lateTxt}<br/>
+    Số ngày giao: ${(o.actual_delivery_days || 0).toFixed(1)} ngày<br/>
+    Điểm đánh giá: ${o.review_score != null ? o.review_score : 'chưa có'}
+  `;
+  L.popup({ maxWidth: 320 })
+    .setLatLng([(o.seller_lat + o.customer_lat) / 2, (o.seller_lng + o.customer_lng) / 2])
+    .setContent(html)
+    .openOn(map);
+}
+
+backBtn.addEventListener('click', renderAggregateView);
+
+loadFlowMap();
+</script>
+
+</body>
+</html>
