@@ -37,6 +37,10 @@ _RAW_TABLES = {
     "customers": "olist_customers_dataset.csv",
     "category_translation": "product_category_name_translation.csv",
 }
+_MARKETING_TABLES = {
+    "marketing_leads": "olist_marketing_qualified_leads_dataset.csv",
+    "closed_deals": "olist_closed_deals_dataset.csv",
+}
 
 # Các cột ngày giờ cần parse lại khi đọc từ CSV (CSV không giữ dtype datetime)
 _DATE_COLUMNS = [
@@ -166,7 +170,7 @@ def _get_duckdb_conn():
             f"'{DATA_PATH.as_posix()}', quote='\"', escape='\"', strict_mode=false)"
         )
 
-    for table_name, filename in _RAW_TABLES.items():
+    for table_name, filename in {**_RAW_TABLES, **_MARKETING_TABLES}.items():
         path = BASE_DIR / "data" / filename
         if path.exists():
             con.execute(
@@ -206,7 +210,11 @@ def describe_dataset() -> dict:
     bằng tool `query_dataset_sql`. LUÔN gọi tool này trước nếu chưa chắc tên bảng/cột.
     """
     con = _get_duckdb_conn()
-    tables = ["orders"] + [t for t in _RAW_TABLES if (BASE_DIR / "data" / _RAW_TABLES[t]).exists()]
+    all_tables = {**_RAW_TABLES, **_MARKETING_TABLES}
+
+    tables = ["orders"] + [
+        t for t in all_tables.keys() if (BASE_DIR / "data" / all_tables[t]).exists()
+    ]
 
     result = {"tables": {}}
     for table in tables:
