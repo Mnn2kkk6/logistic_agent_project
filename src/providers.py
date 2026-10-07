@@ -22,6 +22,7 @@ import json
 import os
 import re
 import time
+from urllib import response
 
 from src.tool_schemas import SYSTEM_PROMPT, TOOLS
 from src.tools import (
@@ -55,17 +56,25 @@ TOOL_FUNCTIONS = {
 # ==== Danh sách model hỗ trợ ====
 # "env_key": biến môi trường chứa API key cần thiết cho provider đó.
 AVAILABLE_MODELS = {
-    "gemini-2.5-flash": {
-        "provider": "gemini", "label": "Gemini 2.5 Flash", "env_key": "GEMINI_API_KEY",
-        "note": "Cân bằng tốc độ/chất lượng — free tier Google AI Studio",
+    "gemini-3.8-flash": {
+        "provider": "gemini",
+        "label": "Gemini 3.8 Flash",
+        "env_key": "GEMINI_API_KEY",
+        "note": "Free Tier — lựa chọn chính cho agent, reasoning và tool calling",
     },
-    "gemini-2.5-flash-lite": {
-        "provider": "gemini", "label": "Gemini 2.5 Flash-Lite", "env_key": "GEMINI_API_KEY",
-        "note": "Nhanh & rẻ nhất, hạn mức free tier cao hơn — dùng khi model kia hết quota",
+
+    "gemini-3.7-flash": {
+        "provider": "gemini",
+        "label": "Gemini 3.7 Flash",
+        "env_key": "GEMINI_API_KEY",
+        "note": "Free Tier — mạnh cho agentic workflows và multi-step execution",
     },
-    "gemini-2.0-flash": {
-        "provider": "gemini", "label": "Gemini 2.0 Flash", "env_key": "GEMINI_API_KEY",
-        "note": "Bản dự phòng thế hệ trước",
+
+    "gemini-3.6-flash": {
+        "provider": "gemini",
+        "label": "Gemini 3.6 Flash",
+        "env_key": "GEMINI_API_KEY",
+        "note": "Free Tier — nhanh, ổn định, dùng làm backup",
     },
     "gpt-4o-mini": {
         "provider": "openai", "label": "GPT-4o Mini", "env_key": "OPENAI_API_KEY",
@@ -93,13 +102,54 @@ AVAILABLE_MODELS = {
         "note": "Miễn phí (~14,400 request/ngày), nhỏ/nhanh hơn bản 120B — dự phòng khi "
                 "Gemini hết quota mà chưa muốn dùng bản trả phí (OpenAI/xAI).",
     },
+    "nvidia/nemotron-3-ultra-550b-a55b-20260604:free": {
+        "provider": "openrouter",
+        "label": "Nemotron 3 Ultra (OpenRouter)",
+        "env_key": "OPENROUTER_API_KEY",
+        "note": "Free — reasoning/orchestration mạnh, phù hợp AI Agent",
+    },
+
+    "poolside/laguna-s-2.1:free": {
+        "provider": "openrouter",
+        "label": "Laguna S 2.1 (OpenRouter)",
+        "env_key": "OPENROUTER_API_KEY",
+        "note": "Free — coding + agentic workflows + tool calling",
+    },
+
+    "nvidia/nemotron-3.5-lightning:free": {
+        "provider": "openrouter",
+        "label": "Nemotron 3.5 Lightning (OpenRouter)",
+        "env_key": "OPENROUTER_API_KEY",
+        "note": "Free — nhanh, context lớn, phù hợp fallback agent",
+    },
+
+    "google/gemma-4-31b-it:free": {
+        "provider": "openrouter",
+        "label": "Gemma 4 31B (OpenRouter)",
+        "env_key": "OPENROUTER_API_KEY",
+        "note": "Free — function calling + multimodal",
+    },
+
+    "openrouter/free": {
+        "provider": "openrouter",
+        "label": "OpenRouter Free Router",
+        "env_key": "OPENROUTER_API_KEY",
+        "note": "Free — tự chọn free model tương thích với request",
+    },
+
+    "gpt-4o-mini": {
+        "provider": "openai",
+        "label": "GPT-4o Mini",
+        "env_key": "OPENAI_API_KEY",
+        "note": "Cần OPENAI_API_KEY",
+    },
     "local-rule-based": {
         "provider": "local", "label": "Local (miễn phí, offline)", "env_key": None,
         "note": "Không cần API key, không gọi mạng — chỉ nhận diện vài mẫu câu cố định "
                 "(không hiểu ngôn ngữ tự nhiên linh hoạt). Dùng khi MỌI model khác đều hết quota.",
     },
 }
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.8-flash"
 
 
 class ProviderError(Exception):
@@ -154,6 +204,8 @@ def chat_turn(model: str, history: list, user_message: str, max_tool_rounds: int
         reply, tool_calls = _xai_turn(model, history, user_message, max_tool_rounds)
     elif info["provider"] == "groq":
         reply, tool_calls = _groq_turn(model, history, user_message, max_tool_rounds)
+    elif info["provider"] == "openrouter":
+        reply, tool_calls = _openrouter_turn(model, history, user_message, max_tool_rounds)
     elif info["provider"] == "local":
         reply, tool_calls = _local_turn(model, history, user_message, max_tool_rounds)
     else:  # pragma: no cover — không nên xảy ra vì AVAILABLE_MODELS kiểm soát chặt
@@ -259,7 +311,33 @@ def _openai_compatible_turn(model, history, user_message, max_tool_rounds, api_k
             )
         except APIError as e:
             raise ProviderError(f"{provider_label} API lỗi: {e}")
+        except Exception as e:
+            raise ProviderError(f"{provider_label} request lỗi: {e}")
+        # OpenRouter có thể trả payload lỗi mà SDK vẫn tạo response object.
+        if response is None:
+            raise ProviderError(f"{provider_label} trả về response rỗng.")
+        if not getattr(response, "choices", None):
+            error_obj = getattr(response, "error", None)
+            if error_obj:
+                try: 
+                    error_data = error_obj.model_dump()
+                except Exception:
+                    error_data = str(error_obj)
+                raise ProviderError(
+                    f"{provider_label} không trả về choices. {error_data}"
+                    f"Provider error: {error_data}"
+                )
+            # Fallback: dump toàn bộ response để debug
+            try:
+                response_data = response.model_dump(exclude_none=True)
+            except Exception:
+                response_data = str(response)
+            raise ProviderError(
+                f"{provider_label} không trả về choices. {response_data}"
+                f"Provider error: {response_data}"
+            )
         msg = response.choices[0].message
+        
         messages.append(msg.model_dump(exclude_none=True))
         if not msg.tool_calls:
             return msg.content or "", tool_calls_log
@@ -291,6 +369,16 @@ def _groq_turn(model, history, user_message, max_tool_rounds):
     return _openai_compatible_turn(
         model, history, user_message, max_tool_rounds,
         api_key=os.environ.get("GROQ_API_KEY"), base_url="https://api.groq.com/openai/v1", provider_label="Groq",
+    )
+def _openrouter_turn(model, history, user_message, max_tool_rounds):
+    return _openai_compatible_turn(
+        model,
+        history,
+        user_message,
+        max_tool_rounds,
+        api_key=os.environ.get("OPENROUTER_API_KEY"),
+        base_url="https://openrouter.ai/api/v1",
+        provider_label="OpenRouter",
     )
 
 
