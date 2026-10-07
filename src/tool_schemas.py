@@ -30,6 +30,17 @@ Nhiệm vụ:
   analytics hiện có.
 - Luôn trả lời bằng tiếng Việt, ngắn gọn, có số liệu cụ thể, không bịa dữ liệu.
 - Nếu tool trả về found=False, error, hoặc không có dữ liệu, hãy nói rõ với người dùng.
+- Khi câu hỏi liên quan đến nguồn gốc seller, marketing channel, MQL,
+  closed deal, acquisition, thời gian chốt seller, seller activation,
+  hoặc quan hệ giữa acquisition và logistics, hãy dùng các tool:
+  get_marketing_funnel_summary,
+  get_marketing_channel_performance,
+  get_seller_360,
+  get_acquisition_logistics_performance.
+- Khi phân tích Seller 360, hãy kết hợp thông tin acquisition với
+  logistics performance thay vì chỉ trả về một phía.
+- GMV trong marketing/logistics analysis là giá trị item quan sát được
+  trong dataset, không được gọi là doanh thu kế toán hay contractual LTV.
 """
 
 TOOLS = [
@@ -187,3 +198,72 @@ TOOLS = [
         },
     },
 ]
+TOOLS.extend([
+    {
+        "name": "get_marketing_funnel_summary",
+        "description": (
+            "Thống kê toàn bộ marketing funnel MQL -> Closed Deal. "
+            "Có thể lọc theo acquisition origin."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "origin": {
+                    "type": "string",
+                    "description": "Kênh acquisition, ví dụ organic_search, paid_search, social"
+                }
+            }
+        },
+    },
+    {
+        "name": "get_marketing_channel_performance",
+        "description": (
+            "So sánh hiệu quả các acquisition channel theo số MQL, "
+            "closed deals, conversion rate và thời gian trung bình để chốt."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "default": 20
+                }
+            }
+        },
+    },
+    {
+        "name": "get_seller_360",
+        "description": (
+            "Phân tích toàn diện một seller: nguồn acquisition, thời gian "
+            "chốt deal, business profile, order performance, late rate, "
+            "delivery time, GMV và tốc độ có đơn đầu tiên."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "seller_id": {
+                    "type": "string",
+                    "description": "Mã seller_id"
+                }
+            },
+            "required": ["seller_id"],
+        },
+    },
+    {
+        "name": "get_acquisition_logistics_performance",
+        "description": (
+            "So sánh các acquisition channel với logistics performance "
+            "của seller sau khi seller được onboard, gồm số seller hoạt động, "
+            "số order, late rate và GMV quan sát được."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "default": 20
+                }
+            }
+        },
+    },
+])
