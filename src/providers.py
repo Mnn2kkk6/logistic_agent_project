@@ -155,7 +155,7 @@ AVAILABLE_MODELS = {
                 "(không hiểu ngôn ngữ tự nhiên linh hoạt). Dùng khi MỌI model khác đều hết quota.",
     },
 }
-DEFAULT_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = "gemini-3.1-pro-preview"
 
 
 class ProviderError(Exception):
