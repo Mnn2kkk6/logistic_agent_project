@@ -76,6 +76,12 @@ AVAILABLE_MODELS = {
         "env_key": "GEMINI_API_KEY",
         "note": "Free Tier — nhanh, ổn định, dùng làm backup",
     },
+        "gemini-3.1-pro-preview": {
+    "provider": "gemini",
+    "label": "Gemini 3.1 Pro Preview",
+    "env_key": "GEMINI_API_KEY",
+    "note": "Pro — reasoning mạnh, multimodal và agentic workflows; paid",
+    },
     "gpt-4o-mini": {
         "provider": "openai", "label": "GPT-4o Mini", "env_key": "OPENAI_API_KEY",
         "note": "Cần OPENAI_API_KEY (trả phí, nhưng rẻ) — dùng khi cả 2 Gemini đều hết quota",
