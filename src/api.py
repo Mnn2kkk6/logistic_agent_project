@@ -30,6 +30,12 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request, session
 
 from src import providers, tools
+from src.marketing_tools import (
+    get_marketing_funnel_summary,
+    get_marketing_channel_performance,
+    get_seller_360,
+    get_acquisition_logistics_performance,
+)
 
 # template_folder chỉ định rõ ràng vì app chạy như package "src.api" — mặc định Flask sẽ
 # tìm "src/templates/" (sai) thay vì "templates/" ở thư mục gốc project (đúng).
@@ -157,7 +163,27 @@ def chat():
 
     _CHAT_HISTORY[sid] = new_history
     return jsonify({"reply": reply, "tool_calls": tool_calls, "model": model})
+@app.get("/marketing/funnel")
+def marketing_funnel():
+    origin = request.args.get("origin")
+    return jsonify(get_marketing_funnel_summary(origin))
 
+
+@app.get("/marketing/channels")
+def marketing_channels():
+    limit = int(request.args.get("limit", 20))
+    return jsonify(get_marketing_channel_performance(limit))
+
+
+@app.get("/seller/<seller_id>/360")
+def seller_360(seller_id):
+    return jsonify(get_seller_360(seller_id))
+
+
+@app.get("/marketing/acquisition-logistics")
+def acquisition_logistics():
+    limit = int(request.args.get("limit", 20))
+    return jsonify(get_acquisition_logistics_performance(limit))
 
 if __name__ == "__main__":
     debug = os.environ.get("FLASK_DEBUG", "1") == "1"
