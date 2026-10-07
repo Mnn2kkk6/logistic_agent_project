@@ -38,7 +38,12 @@ from src.tools import (
     train_custom_model,
     web_search,
 )
-
+from src.marketing_tools import (
+    get_marketing_funnel_summary,
+    get_marketing_channel_performance,
+    get_seller_360,
+    get_acquisition_logistics_performance,
+)
 TOOL_FUNCTIONS = {
     "get_order_info": get_order_info,
     "predict_new_order": predict_new_order,
@@ -52,6 +57,12 @@ TOOL_FUNCTIONS = {
     "train_custom_model": train_custom_model,
     "web_search": web_search,
 }
+TOOL_FUNCTIONS.update({
+    "get_marketing_funnel_summary": get_marketing_funnel_summary,
+    "get_marketing_channel_performance": get_marketing_channel_performance,
+    "get_seller_360": get_seller_360,
+    "get_acquisition_logistics_performance": get_acquisition_logistics_performance,
+})
 
 # ==== Danh sách model hỗ trợ ====
 # "env_key": biến môi trường chứa API key cần thiết cho provider đó.
@@ -76,7 +87,7 @@ AVAILABLE_MODELS = {
         "env_key": "GEMINI_API_KEY",
         "note": "Free Tier — nhanh, ổn định, dùng làm backup",
     },
-        "gemini-3.1-pro-preview": {
+    "gemini-3.1-pro-preview": {
     "provider": "gemini",
     "label": "Gemini 3.1 Pro Preview",
     "env_key": "GEMINI_API_KEY",
@@ -155,7 +166,7 @@ AVAILABLE_MODELS = {
                 "(không hiểu ngôn ngữ tự nhiên linh hoạt). Dùng khi MỌI model khác đều hết quota.",
     },
 }
-DEFAULT_MODEL = "gemini-3.1-pro-preview"
+DEFAULT_MODEL = "gemini-3.1-pro-preview"  # model mặc định nếu người dùng không chọn gì
 
 
 class ProviderError(Exception):
