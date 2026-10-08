@@ -109,6 +109,46 @@
   .history-item:hover {
     background: var(--panel-2);
     border-color: var(--border);
+  .history-item {
+  position: relative;
+  padding-right: 34px;
+  }
+
+  .history-delete {
+    position: absolute;
+    top: 50%;
+    right: 8px;
+    transform: translateY(-50%);
+
+    width: 24px;
+    height: 24px;
+
+    display: grid;
+    place-items: center;
+
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+
+    color: #687486;
+    font-size: 13px;
+
+    cursor: pointer;
+    opacity: 0;
+    ransition:
+      opacity .15s ease,
+      background .15s ease,
+      color .15s ease;
+  }
+
+  .history-item:hover .history-delete {
+    opacity: 1;
+  }
+
+  .history-delete:hover {
+    color: var(--red);
+    background: rgba(224, 97, 90, 0.10);
+  }  
   }
   .history-title {
     color: var(--text);
@@ -604,14 +644,19 @@ const modelNote = document.getElementById('modelNote');
 const historySection = document.getElementById('historySection');
 const historyList = document.getElementById('historyList');
 
-const HISTORY_STORAGE_KEY = 'ai_logistics_chat_history_v1';
+const HISTORY_STORAGE_KEY = 'ai_logistics_chat_history_v2';
 const MAX_HISTORY_ITEMS = 20;
+const MAX_MESSAGES_PER_CONVERSATION = 100;
 
 let currentModels = [];
+
 let currentConversation = {
   active: false,
+  id: null,
   title: '',
-  messageCount: 0,
+  messages: [],
+  createdAt: null,
+  updatedAt: null,
 };
 
 function updateModelNote() {
@@ -643,7 +688,16 @@ function loadHistory() {
   try {
     const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
     const history = raw ? JSON.parse(raw) : [];
-    return Array.isArray(history) ? history : [];
+
+    if (!Array.isArray(history)) return [];
+
+    return history.filter(item =>
+      item &&
+      typeof item.id === 'string' &&
+      typeof item.title === 'string' &&
+      Array.isArray(item.messages) &&
+      item.messages.length > 0
+    );
   } catch (err) {
     return [];
   }
@@ -651,12 +705,21 @@ function loadHistory() {
 
 function saveHistory(history) {
   try {
+    const cleaned = history
+      .filter(item =>
+        item &&
+        typeof item.id === 'string' &&
+        Array.isArray(item.messages) &&
+        item.messages.length > 0
+      )
+      .slice(0, MAX_HISTORY_ITEMS);
+
     localStorage.setItem(
       HISTORY_STORAGE_KEY,
-      JSON.stringify(history.slice(0, MAX_HISTORY_ITEMS))
+      JSON.stringify(cleaned)
     );
   } catch (err) {
-    // localStorage có thể bị chặn trong một số môi trường trình duyệt.
+    console.error('Không thể lưu lịch sử:', err);
   }
 }
 
@@ -680,16 +743,66 @@ function renderHistory() {
     title.className = 'history-title';
     title.textContent = item.title || 'Cuộc trò chuyện';
 
+    const questionCount = Array.isArray(item.messages)
+      ? item.messages.filter(m => m.role === 'user').length
+      : 0;
+
     const meta = document.createElement('div');
     meta.className = 'history-meta';
-    meta.textContent = item.messageCount === 1
+    meta.textContent = questionCount === 1
       ? '1 lượt hỏi'
-      : `${item.messageCount || 0} lượt hỏi`;
+      : `${questionCount} lượt hỏi`;
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'history-delete';
+    deleteBtn.type = 'button';
+    deleteBtn.title = 'Xóa cuộc trò chuyện';
+    deleteBtn.setAttribute('aria-label', 'Xóa cuộc trò chuyện');
+    deleteBtn.textContent = '🗑';
+
+    // Click tên -> mở lại conversation
+    row.addEventListener('click', () => {
+      openConversation(item.id);
+    });
+
+    // Click thùng rác -> không mở conversation
+    deleteBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      deleteHistoryItem(item.id);
+    });
 
     row.appendChild(title);
     row.appendChild(meta);
+    row.appendChild(deleteBtn);
+
     historyList.appendChild(row);
   });
+}
+function createConversationId() {
+  if (window.crypto && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+
+  return `conv_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+function deleteHistoryItem(id) {
+  const history = loadHistory();
+
+  const index = history.findIndex(item => item.id === id);
+  if (index < 0 || index >= history.length) return;
+
+  const item = history[index];
+
+  const confirmed = window.confirm(
+    `Xóa cuộc trò chuyện "${item.title || 'Cuộc trò chuyện'}"?`
+  );
+
+  if (!confirmed) return;
+
+  history.splice(index, 1);
+
+  saveHistory(history);
+  renderHistory();
 }
 
 function truncateTitle(text, maxLength = 55) {
@@ -701,30 +814,72 @@ function truncateTitle(text, maxLength = 55) {
 function startConversation(text) {
   if (currentConversation.active) return;
 
+  const now = new Date().toISOString();
+
   currentConversation = {
     active: true,
+    id: createConversationId(),
     title: truncateTitle(text),
-    messageCount: 0,
+    messages: [],
+    createdAt: now,
+    updatedAt: now,
   };
 
   const homeScreen = document.getElementById('homeScreen');
-  if (homeScreen) homeScreen.remove();
+  if (homeScreen) {
+    homeScreen.remove();
+  }
 
   resetBtn.disabled = false;
 }
 
 function finishConversation() {
-  if (!currentConversation.active || currentConversation.messageCount < 1) {
-    currentConversation = { active: false, title: '', messageCount: 0 };
+  if (
+    !currentConversation.active ||
+    !Array.isArray(currentConversation.messages) ||
+    currentConversation.messages.length === 0
+  ) {
+    currentConversation = {
+      active: false,
+      id: null,
+      title: '',
+      messages: [],
+      createdAt: null,
+      updatedAt: null,
+    };
+
     resetBtn.disabled = true;
     return;
   }
 
   const history = loadHistory();
-  history.unshift({
+  const now = new Date().toISOString();
+
+  const conversationToSave = {
+    id: currentConversation.id,
     title: currentConversation.title,
-    messageCount: currentConversation.messageCount,
-    endedAt: new Date().toISOString(),
+    messages: currentConversation.messages.slice(
+      -MAX_MESSAGES_PER_CONVERSATION
+    ),
+    createdAt: currentConversation.createdAt || now,
+    updatedAt: now,
+  };
+
+  const existingIndex = history.findIndex(
+    item => item.id === conversationToSave.id
+  );
+
+  if (existingIndex >= 0) {
+    // Conversation cũ được mở lại -> cập nhật conversation đó
+    history[existingIndex] = conversationToSave;
+  } else {
+    // Conversation mới -> thêm vào đầu
+    history.unshift(conversationToSave);
+  }
+
+  // Mới nhất lên đầu
+  history.sort((a, b) => {
+    return new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0);
   });
 
   saveHistory(history);
@@ -732,8 +887,11 @@ function finishConversation() {
 
   currentConversation = {
     active: false,
+    id: null,
     title: '',
-    messageCount: 0,
+    messages: [],
+    createdAt: null,
+    updatedAt: null,
   };
 
   resetBtn.disabled = true;
@@ -816,13 +974,152 @@ function removeThinking() {
   if (el) el.remove();
 }
 
+function renderConversationMessages(messages) {
+  chatInner.innerHTML = '';
+
+  if (!Array.isArray(messages) || messages.length === 0) {
+    showEmptyState(
+      'Cuộc trò chuyện này chưa có nội dung.'
+    );
+    return;
+  }
+
+  messages.forEach(message => {
+    if (!message || !message.role || typeof message.content !== 'string') {
+      return;
+    }
+
+    if (message.role === 'user') {
+      addMessage(
+        'user',
+        message.content
+      );
+    }
+
+    if (message.role === 'assistant') {
+      addMessage(
+        'agent',
+        message.content,
+        message.toolCalls || []
+      );
+    }
+  });
+
+  scrollToBottom();
+}
+
+async function resetBackendContext() {
+  try {
+    await fetch('/chat/reset', {
+      method: 'POST'
+    });
+    return true;
+  } catch (err) {
+    console.error(
+      'Không reset được conversation backend:',
+      err
+    );
+    return false;
+  }
+}
+
+async function restoreBackendContext(messages) {
+  const historyForBackend = messages
+    .filter(message =>
+      message &&
+      (message.role === 'user' || message.role === 'assistant') &&
+      typeof message.content === 'string'
+    )
+    .map(message => ({
+      role: message.role,
+      content: message.content,
+    }));
+
+  const res = await fetch('/chat/restore', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      history: historyForBackend
+    }),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok || data.error) {
+    throw new Error(
+      data.error || 'Không thể khôi phục context.'
+    );
+  }
+
+  return true;
+}
+
+async function deleteHistoryItem(conversationId) {
+  const history = loadHistory();
+
+  const target = history.find(
+    item => item.id === conversationId
+  );
+
+  if (!target) return;
+
+  const confirmed = window.confirm(
+    `Xóa cuộc trò chuyện "${target.title || 'Cuộc trò chuyện'}"?`
+  );
+
+  if (!confirmed) return;
+
+  const newHistory = history.filter(
+    item => item.id !== conversationId
+  );
+
+  saveHistory(newHistory);
+  renderHistory();
+
+  // Nếu đang mở chính conversation vừa xóa
+  if (currentConversation.id === conversationId) {
+    await resetBackendContext();
+
+    currentConversation = {
+      active: false,
+      id: null,
+      title: '',
+      messages: [],
+      createdAt: null,
+      updatedAt: null,
+    };
+
+    resetBtn.disabled = true;
+
+    showEmptyState(
+      'Cuộc trò chuyện đã được xóa. Bắt đầu câu hỏi mới bên dưới 👇'
+    );
+
+    input.focus();
+  }
+}
+
+
+
 async function sendMessage(text) {
   if (!text.trim() || sendBtn.disabled) return;
 
   startConversation(text);
-  currentConversation.messageCount += 1;
 
-  addMessage('user', text);
+  const cleanText = text.trim();
+
+  // Lưu câu hỏi vào conversation hiện tại
+  currentConversation.messages.push({
+    role: 'user',
+    content: cleanText,
+  });
+
+  currentConversation.updatedAt = new Date().toISOString();
+
+  addMessage('user', cleanText);
+
   input.value = '';
   input.style.height = 'auto';
   sendBtn.disabled = true;
@@ -831,21 +1128,50 @@ async function sendMessage(text) {
   try {
     const res = await fetch('/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, model: modelSelect.value }),
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        message: cleanText,
+        model: modelSelect.value
+      }),
     });
 
     const data = await res.json();
     removeThinking();
 
     if (!res.ok || data.error) {
-      addMessage('agent-error', data.error || 'Đã có lỗi xảy ra.');
+      addMessage(
+        'agent-error',
+        data.error || 'Đã có lỗi xảy ra.'
+      );
     } else {
-      addMessage('agent', data.reply || '(không có phản hồi)', data.tool_calls);
+      const reply = data.reply || '(không có phản hồi)';
+
+      addMessage(
+        'agent',
+        reply,
+        data.tool_calls
+      );
+
+      // Lưu câu trả lời
+      currentConversation.messages.push({
+        role: 'assistant',
+        content: reply,
+        toolCalls: data.tool_calls || [],
+      });
+
+      currentConversation.updatedAt = new Date().toISOString();
     }
+
   } catch (err) {
     removeThinking();
-    addMessage('agent-error', 'Không kết nối được tới server: ' + err.message);
+
+    addMessage(
+      'agent-error',
+      'Không kết nối được tới server: ' + err.message
+    );
+
   } finally {
     sendBtn.disabled = false;
     input.focus();
@@ -878,18 +1204,23 @@ document.querySelectorAll('[data-q]').forEach(el => {
  * - Sau khi thoát, khu vực lịch sử mới xuất hiện ở sidebar.
  */
 resetBtn.addEventListener('click', async () => {
-  if (!currentConversation.active || currentConversation.messageCount < 1) return;
+  if (
+    !currentConversation.active ||
+    currentConversation.messages.length < 1
+  ) {
+    return;
+  }
 
   resetBtn.disabled = true;
 
-  try {
-    await fetch('/chat/reset', { method: 'POST' });
-  } catch (err) {
-    // Dù backend reset lỗi, vẫn kết thúc UI hiện tại để tránh giữ trạng thái cũ.
-  }
+  await resetBackendContext();
 
   finishConversation();
-  showEmptyState('Đã thoát cuộc trò chuyện. Bắt đầu câu hỏi mới bên dưới 👇');
+
+  showEmptyState(
+    'Đã thoát cuộc trò chuyện. Bắt đầu câu hỏi mới bên dưới 👇'
+  );
+
   input.focus();
 });
 
