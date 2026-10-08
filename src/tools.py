@@ -561,188 +561,46 @@ def top_risky_categories(n: int = 5, min_orders: int = 50) -> dict:
     return {"results": _df_to_json_safe_records(g)}
 
 
-
-def _map_date_filters(alias: str, start_date: str | None, end_date: str | None):
-    """Tạo WHERE predicates + params dùng chung cho các API map theo ngày đặt hàng."""
-    filters = [
-        f"{alias}.order_status = 'delivered'",
-        f"{alias}.seller_state IS NOT NULL",
-        f"{alias}.customer_state IS NOT NULL",
-    ]
-    params = []
-    if start_date:
-        filters.append(f"CAST({alias}.order_purchase_timestamp AS DATE) >= CAST(? AS DATE)")
-        params.append(start_date)
-    if end_date:
-        filters.append(f"CAST({alias}.order_purchase_timestamp AS DATE) <= CAST(? AS DATE)")
-        params.append(end_date)
-    return " AND ".join(filters), params
-
-
-def _map_summary(con, where_sql: str, params: list) -> dict:
-    row = con.execute(
-        f"""
-        SELECT
-            COUNT(*) AS n_orders,
-            COALESCE(SUM(CASE WHEN is_late = 1 THEN 1 ELSE 0 END), 0) AS n_late,
-            AVG(is_late) * 100 AS late_rate_pct,
-            AVG(actual_delivery_days) AS avg_delivery_days,
-            AVG(distance_km) AS avg_distance_km
-        FROM orders
-        WHERE {where_sql}
-        """,
-        params,
-    ).fetchone()
-    n_orders, n_late, late_rate_pct, avg_delivery_days, avg_distance_km = row
-    return {
-        "n_orders": int(n_orders or 0),
-        "n_late": int(n_late or 0),
-        "late_rate_pct": round(float(late_rate_pct or 0), 2),
-        "avg_delivery_days": round(float(avg_delivery_days or 0), 2),
-        "avg_distance_km": round(float(avg_distance_km or 0), 1),
-    }
-
-
-def _map_date_bounds(con) -> dict:
-    row = con.execute(
-        """
-        SELECT
-            CAST(MIN(order_purchase_timestamp) AS DATE),
-            CAST(MAX(order_purchase_timestamp) AS DATE)
-        FROM orders
-        WHERE order_status = 'delivered'
-        """
-    ).fetchone()
-    return {
-        "date_min": str(row[0]) if row[0] is not None else None,
-        "date_max": str(row[1]) if row[1] is not None else None,
-    }
-
-
-def get_state_flow_map(start_date: str | None = None, end_date: str | None = None) -> dict:
+def get_state_flow_map() -> dict:
     """
-    Luồng seller_state -> customer_state, có bộ lọc theo ngày đặt hàng.
-    Giữ nguyên semantics của map cũ, nhưng bổ sung summary + date bounds để frontend
-    có thể lọc theo thời gian mà không phá endpoint hiện tại.
+    Luồng đơn hàng GỘP theo từng cặp (bang seller → bang khách hàng) — dùng cho màn hình
+    tổng thể của trang bản đồ (/map). Mỗi luồng kèm toạ độ trung tâm 2 bang (trung bình toạ
+    độ seller/khách hàng thực tế thuộc bang đó), số đơn, tỉ lệ trễ, khoảng cách & thời gian
+    giao trung bình.
     """
     con = _get_duckdb_conn()
-    where_sql, params = _map_date_filters("o", start_date, end_date)
-
-    df = con.execute(
-        f"""
+    df = con.execute("""
         WITH state_centroid AS (
             SELECT state, AVG(lat) AS lat, AVG(lng) AS lng FROM (
-                SELECT seller_state AS state, seller_lat AS lat, seller_lng AS lng
-                FROM orders
+                SELECT seller_state AS state, seller_lat AS lat, seller_lng AS lng FROM orders
                 WHERE seller_lat IS NOT NULL
                 UNION ALL
-                SELECT customer_state AS state, cust_lat AS lat, cust_lng AS lng
-                FROM orders
+                SELECT customer_state AS state, cust_lat AS lat, cust_lng AS lng FROM orders
                 WHERE cust_lat IS NOT NULL
             ) GROUP BY state
         )
-        SELECT
-            o.seller_state AS from_state,
-            o.customer_state AS to_state,
-            fc.lat AS from_lat,
-            fc.lng AS from_lng,
-            tc.lat AS to_lat,
-            tc.lng AS to_lng,
-            COUNT(*) AS n_orders,
-            ROUND(AVG(o.is_late) * 100, 2) AS late_rate_pct,
-            ROUND(AVG(o.distance_km), 1) AS avg_distance_km,
-            ROUND(AVG(o.actual_delivery_days), 2) AS avg_delivery_days,
-            SUM(CASE WHEN o.is_late = 1 THEN 1 ELSE 0 END) AS n_late
+        SELECT o.seller_state AS from_state, o.customer_state AS to_state,
+               fc.lat AS from_lat, fc.lng AS from_lng, tc.lat AS to_lat, tc.lng AS to_lng,
+               COUNT(*) AS n_orders,
+               ROUND(AVG(o.is_late) * 100, 2) AS late_rate_pct,
+               ROUND(AVG(o.distance_km), 1) AS avg_distance_km,
+               ROUND(AVG(o.actual_delivery_days), 2) AS avg_delivery_days
         FROM orders o
         JOIN state_centroid fc ON o.seller_state = fc.state
         JOIN state_centroid tc ON o.customer_state = tc.state
-        WHERE {where_sql}
-        GROUP BY
-            o.seller_state, o.customer_state,
-            fc.lat, fc.lng, tc.lat, tc.lng
+        WHERE o.order_status = 'delivered' AND o.seller_state IS NOT NULL AND o.customer_state IS NOT NULL
+        GROUP BY o.seller_state, o.customer_state, fc.lat, fc.lng, tc.lat, tc.lng
         HAVING COUNT(*) >= 5
         ORDER BY n_orders DESC
-        """,
-        params,
-    ).fetchdf()
-
-    return {
-        "flows": _df_to_json_safe_records(df),
-        "summary": _map_summary(con, where_sql, params),
-        **_map_date_bounds(con),
-        "filter": {"start_date": start_date, "end_date": end_date},
-    }
+    """).fetchdf()
+    return {"flows": _df_to_json_safe_records(df)}
 
 
-def get_state_risk_map(start_date: str | None = None, end_date: str | None = None) -> dict:
-    """Thống kê risk theo customer_state để tô choropleth trên bản đồ Brazil."""
-    con = _get_duckdb_conn()
-    where_sql, params = _map_date_filters("o", start_date, end_date)
-
-    df = con.execute(
-        f"""
-        SELECT
-            o.customer_state AS state,
-            COUNT(*) AS n_orders,
-            SUM(CASE WHEN o.is_late = 1 THEN 1 ELSE 0 END) AS n_late,
-            ROUND(AVG(o.is_late) * 100, 2) AS late_rate_pct,
-            ROUND(AVG(o.actual_delivery_days), 2) AS avg_delivery_days,
-            ROUND(AVG(o.distance_km), 1) AS avg_distance_km,
-            ROUND(AVG(o.review_score), 2) AS avg_review_score
-        FROM orders o
-        WHERE {where_sql}
-        GROUP BY o.customer_state
-        HAVING COUNT(*) >= 5
-        ORDER BY late_rate_pct DESC
-        """,
-        params,
-    ).fetchdf()
-
-    return {
-        "states": _df_to_json_safe_records(df),
-        "summary": _map_summary(con, where_sql, params),
-        **_map_date_bounds(con),
-        "filter": {"start_date": start_date, "end_date": end_date},
-    }
-
-
-def get_map_trend(start_date: str | None = None, end_date: str | None = None) -> dict:
-    """Xu hướng theo tháng: orders, late rate và thời gian giao trung bình."""
-    con = _get_duckdb_conn()
-    where_sql, params = _map_date_filters("o", start_date, end_date)
-
-    df = con.execute(
-        f"""
-        SELECT
-            STRFTIME(DATE_TRUNC('month', o.order_purchase_timestamp), '%Y-%m') AS month,
-            COUNT(*) AS n_orders,
-            ROUND(AVG(o.is_late) * 100, 2) AS late_rate_pct,
-            ROUND(AVG(o.actual_delivery_days), 2) AS avg_delivery_days
-        FROM orders o
-        WHERE {where_sql}
-        GROUP BY 1
-        ORDER BY 1
-        """,
-        params,
-    ).fetchdf()
-
-    return {
-        "trend": _df_to_json_safe_records(df),
-        **_map_date_bounds(con),
-        "filter": {"start_date": start_date, "end_date": end_date},
-    }
-
-
-def get_order_sample_for_flow(
-    from_state: str,
-    to_state: str,
-    limit: int = 40,
-    start_date: str | None = None,
-    end_date: str | None = None,
-) -> dict:
+def get_order_sample_for_flow(from_state: str, to_state: str, limit: int = 40) -> dict:
     """
-    Lấy mẫu ngẫu nhiên các đơn thuộc 1 flow, có lọc theo thời gian.
-    n_available là tổng số đơn khớp flow/filter, không còn bị giới hạn bởi LIMIT.
+    Lấy mẫu NGẪU NHIÊN các đơn hàng cụ thể thuộc 1 cặp (bang seller → bang khách hàng) —
+    dùng cho màn hình animation khi người dùng click vào 1 luồng trên bản đồ tổng thể.
+    Mỗi đơn kèm đủ toạ độ + thông tin chi tiết để hiện khi hover/click từng đơn.
     """
     from_state = str(from_state).upper().strip()
     to_state = str(to_state).upper().strip()
@@ -750,53 +608,21 @@ def get_order_sample_for_flow(
         limit = max(1, min(int(limit), 200))
     except (TypeError, ValueError):
         limit = 40
-
     con = _get_duckdb_conn()
-    filters = [
-        "order_status = 'delivered'",
-        "seller_state = ?",
-        "customer_state = ?",
-        "seller_lat IS NOT NULL",
-        "cust_lat IS NOT NULL",
-    ]
-    base_params = [from_state, to_state]
-
-    if start_date:
-        filters.append("CAST(order_purchase_timestamp AS DATE) >= CAST(? AS DATE)")
-        base_params.append(start_date)
-    if end_date:
-        filters.append("CAST(order_purchase_timestamp AS DATE) <= CAST(? AS DATE)")
-        base_params.append(end_date)
-
-    where_sql = " AND ".join(filters)
-    count_row = con.execute(
-        f"SELECT COUNT(*) FROM orders WHERE {where_sql}",
-        base_params,
-    ).fetchone()
-    n_available = int(count_row[0] or 0)
-
-    df = con.execute(
-        f"""
-        SELECT
-            order_id, seller_id, seller_city, seller_state, seller_lat, seller_lng,
-            customer_city, customer_state, cust_lat AS customer_lat, cust_lng AS customer_lng,
-            is_late, actual_delivery_days, distance_km,
-            order_purchase_timestamp, order_delivered_customer_date, order_estimated_delivery_date,
-            product_category_name_english AS product_category,
-            total_price, total_freight, payment_value, review_score
+    df = con.execute("""
+        SELECT order_id, seller_id, seller_city, seller_state, seller_lat, seller_lng,
+               customer_city, customer_state, cust_lat AS customer_lat, cust_lng AS customer_lng,
+               is_late, actual_delivery_days, distance_km,
+               order_purchase_timestamp, order_delivered_customer_date, order_estimated_delivery_date,
+               product_category_name_english AS product_category, total_price, total_freight,
+               payment_value, review_score
         FROM orders
-        WHERE {where_sql}
+        WHERE order_status = 'delivered' AND seller_state = ? AND customer_state = ?
+              AND seller_lat IS NOT NULL AND cust_lat IS NOT NULL
         ORDER BY random()
         LIMIT ?
-        """,
-        base_params + [limit],
-    ).fetchdf()
-
-    return {
-        "orders": _df_to_json_safe_records(df),
-        "n_available": n_available,
-        "filter": {"start_date": start_date, "end_date": end_date},
-    }
+    """, [from_state, to_state, limit]).fetchdf()
+    return {"orders": _df_to_json_safe_records(df), "n_available": len(df)}
 
 
 def web_search(query: str, max_results: int = 5) -> dict:
