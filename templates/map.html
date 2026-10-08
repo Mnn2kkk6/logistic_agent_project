@@ -807,7 +807,8 @@ function setActiveMode(mode) {
 }
 
 function globalFilterBoxVisible() {
-  document.getElementById('globalFilterBox').style.display = currentView === 'detail' ? 'none' : 'block';
+  document.getElementById('globalFilterBox').style.display =
+    (currentView === 'detail' || currentMode === 'compare') ? 'none' : 'block';
 }
 
 function setViewHeader() {
@@ -965,7 +966,7 @@ function updateStateLayers(mode, metricsMap) {
         '<b>' + safe(code) + ' · ' + safe(name) + '</b><br>'
         + 'Period A: ' + fmtPct(metric.a_late_rate)
         + '<br>Period B: ' + fmtPct(metric.b_late_rate)
-        + '<br>Change: <b>' + (delta > 0 ? '+' : '') + fmtPct(delta) + '</b>',
+        + '<br>Change: <b>' + (delta > 0 ? '+' : '') + fmt(delta, 1) + ' pp</b>',
         { sticky: true }
       );
     } else {
@@ -1054,7 +1055,7 @@ function compareStats() {
   renderStats([
     { label: 'Period A late', value: fmtPct(compareA.summary.late_rate_pct) },
     { label: 'Period B late', value: fmtPct(compareB.summary.late_rate_pct) },
-    { label: 'Change', value: (delta > 0 ? '+' : '') + fmtPct(delta), className: cls },
+    { label: 'Change', value: (delta > 0 ? '+' : '') + fmt(delta, 1) + ' pp', className: cls },
     { label: 'B orders', value: fmt(compareB.summary.n_orders) },
   ]);
 
@@ -1083,10 +1084,10 @@ function compareStats() {
     + '</div>'
     + (worst
       ? '<div class="stat-card"><div class="stat-label">State worsened most</div><div class="stat-value delta-bad">'
-        + safe(worst.state) + ' · +' + fmtPct(worst.delta) + '</div></div>' : '')
+        + safe(worst.state) + ' · +' + fmt(worst.delta, 1) + ' pp</div></div>' : '')
     + (best
       ? '<div class="stat-card"><div class="stat-label">State improved most</div><div class="stat-value delta-good">'
-        + safe(best.state) + ' · ' + fmtPct(best.delta) + '</div></div>' : '');
+        + safe(best.state) + ' · ' + (best.delta > 0 ? '+' : '') + fmt(best.delta, 1) + ' pp</div></div>' : '');
 
   const metricMap = {};
   deltas.forEach(function(d) {
@@ -1232,23 +1233,25 @@ function renderAggregateFlow() {
         lineCap: 'round',
       });
 
-      const arrow = L.polylineDecorator(line, {
-        patterns: [{
-          offset: '50%',
-          repeat: 0,
-          symbol: L.Symbol.arrowHead({
-            pixelSize: 8,
-            polygon: false,
-            pathOptions: {
-              stroke: true,
-              color: color,
-              weight: 2,
-              opacity: .95,
-            }
-          })
-        }]
-      });
-      arrow.addTo(flowLayer);
+      if (window.L && typeof L.polylineDecorator === 'function' && L.Symbol && typeof L.Symbol.arrowHead === 'function') {
+        const arrow = L.polylineDecorator(line, {
+          patterns: [{
+            offset: '50%',
+            repeat: 0,
+            symbol: L.Symbol.arrowHead({
+              pixelSize: 8,
+              polygon: false,
+              pathOptions: {
+                stroke: true,
+                color: color,
+                weight: 2,
+                opacity: .95,
+              }
+            })
+          }]
+        });
+        arrow.addTo(flowLayer);
+      }
     }
 
     line.bindTooltip(
@@ -1550,7 +1553,7 @@ function renderDetailView() {
   }
 
   stateLayer.bringToBack();
-  labelLayer.bringToFront();
+  labelLayer.clearLayers();
 }
 
 function showOrderDetail(o) {
