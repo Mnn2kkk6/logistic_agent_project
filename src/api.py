@@ -1,9 +1,8 @@
 """
-Flask API + Web UI cho AI Logistics Agent — hỗ trợ chọn model (Gemini Flash /
-Flash-Lite / GPT-4o / GPT-4o mini) để tránh nghẽn quota free tier.
+Flask API + Web UI cho AI Logistics Agent — hỗ trợ chọn model.
 
 Endpoints:
-  GET  /                    Giao diện chat web (mở http://localhost:5000)
+  GET  /                    Giao diện chat web
   GET  /health
   GET  /models               Danh sách model khả dụng + trạng thái đã cấu hình key hay chưa
   POST /predict               {distance_km, customer_state, seller_state, ...}
@@ -13,7 +12,9 @@ Endpoints:
   GET  /stats/category/<category>
   GET  /stats/top-risky-states?n=5
   GET  /stats/top-risky-categories?n=5
-  POST /chat                  {"message": "...", "model": "gemini-2.5-flash"}  (nhớ lịch sử theo session)
+  POST /chat                  {"message": "...", "model": "..."}  (nhớ lịch sử theo session)
+  POST /chat/restore          {"history": [{"role":"user|assistant", "content":"..."}]}
+                              khôi phục context khi mở lại một cuộc trò chuyện đã lưu ở frontend
   POST /chat/reset                                  xoá lịch sử hội thoại của session hiện tại
 
 Chạy local:
@@ -117,6 +118,45 @@ def chat_reset():
     _CHAT_HISTORY.pop(_get_session_id(), None)
     return jsonify({"status": "ok"})
 
+
+@app.post("/chat/restore")
+def chat_restore():
+    """
+    Khôi phục canonical history từ frontend khi người dùng mở lại một chat đã lưu.
+    Chỉ nhận role user/assistant và giới hạn số message để tránh nạp payload bất thường.
+    """
+    payload = request.get_json(force=True) or {}
+    raw_history = payload.get("history")
+
+    if not isinstance(raw_history, list):
+        return jsonify({"error": "history phải là một mảng."}), 400
+
+    if len(raw_history) > 100:
+        return jsonify({"error": "Lịch sử hội thoại quá dài."}), 400
+
+    canonical_history = []
+    for item in raw_history:
+        if not isinstance(item, dict):
+            return jsonify({"error": "Mỗi phần tử history phải là object."}), 400
+
+        role = item.get("role")
+        content = item.get("content")
+
+        if role not in {"user", "assistant"}:
+            return jsonify({"error": "role phải là user hoặc assistant."}), 400
+        if not isinstance(content, str):
+            return jsonify({"error": "content phải là chuỗi."}), 400
+
+        content = content.strip()
+        if not content:
+            continue
+
+        canonical_history.append({"role": role, "content": content})
+
+    _CHAT_HISTORY[_get_session_id()] = canonical_history
+    return jsonify({"status": "ok", "messages": len(canonical_history)})
+
+
 @app.get("/map")
 def map_page():
     return render_template("map.html")
@@ -155,14 +195,15 @@ def chat():
         reply, tool_calls, new_history = providers.chat_turn(model, history, message)
     except providers.ProviderError as e:
         return jsonify({"error": str(e)}), 502
-    except Exception as e:  # noqa: BLE001 — bất kỳ lỗi nào khác (JSON hỏng, lỗi tool, lỗi SDK
-        # chưa lường trước...) đều phải trả JSON, không được để Flask trả trang HTML 500
-        # mặc định — nếu không frontend sẽ crash ở res.json() với lỗi "Unexpected token '<'".
+    except Exception as e:  # noqa: BLE001
+        # Bất kỳ lỗi nào khác đều phải trả JSON, không để Flask trả HTML 500 mặc định.
         app.logger.exception("Lỗi không mong đợi khi xử lý /chat (model=%s)", model)
         return jsonify({"error": f"Đã có lỗi không mong đợi khi xử lý yêu cầu: {e}"}), 500
 
     _CHAT_HISTORY[sid] = new_history
     return jsonify({"reply": reply, "tool_calls": tool_calls, "model": model})
+
+
 @app.get("/marketing/funnel")
 def marketing_funnel():
     origin = request.args.get("origin")
@@ -185,9 +226,9 @@ def acquisition_logistics():
     limit = int(request.args.get("limit", 20))
     return jsonify(get_acquisition_logistics_performance(limit))
 
+
 if __name__ == "__main__":
     debug = os.environ.get("FLASK_DEBUG", "1") == "1"
     port = int(os.environ.get("PORT", 5000))
-    # host=0.0.0.0 để container Docker expose ra ngoài được (127.0.0.1 mặc định chỉ nghe
-    # trong nội bộ container, máy host sẽ không kết nối được dù đã map port).
+    # host=0.0.0.0 để container Docker expose ra ngoài được.
     app.run(host="0.0.0.0", port=port, debug=debug)
