@@ -26,6 +26,7 @@ Chạy bằng Docker: xem README mục "Chạy bằng Docker".
 """
 import os
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, session
@@ -162,20 +163,70 @@ def map_page():
     return render_template("map.html")
 
 
+def _map_date_args():
+    """Đọc và kiểm tra khoảng ngày dùng chung cho các API map."""
+    start_date = (request.args.get("start_date") or "").strip() or None
+    end_date = (request.args.get("end_date") or "").strip() or None
+
+    for label, value in (("start_date", start_date), ("end_date", end_date)):
+        if value:
+            try:
+                datetime.strptime(value, "%Y-%m-%d")
+            except ValueError:
+                return None, None, jsonify({"error": f"{label} phải có định dạng YYYY-MM-DD."}), 400
+
+    if start_date and end_date and start_date > end_date:
+        return None, None, jsonify({"error": "start_date phải nhỏ hơn hoặc bằng end_date."}), 400
+
+    return start_date, end_date, None, None
+
+
 @app.get("/api/map/flows")
 def map_flows():
-    return jsonify(tools.get_state_flow_map())
+    start_date, end_date, error_response, error_status = _map_date_args()
+    if error_response is not None:
+        return error_response, error_status
+    return jsonify(tools.get_state_flow_map(start_date, end_date))
+
+
+@app.get("/api/map/states")
+def map_states():
+    start_date, end_date, error_response, error_status = _map_date_args()
+    if error_response is not None:
+        return error_response, error_status
+    return jsonify(tools.get_state_risk_map(start_date, end_date))
+
+
+@app.get("/api/map/trend")
+def map_trend():
+    start_date, end_date, error_response, error_status = _map_date_args()
+    if error_response is not None:
+        return error_response, error_status
+    return jsonify(tools.get_map_trend(start_date, end_date))
 
 
 @app.get("/api/map/sample")
 def map_sample():
     from_state = request.args.get("from", "")
     to_state = request.args.get("to", "")
+    start_date, end_date, error_response, error_status = _map_date_args()
+    if error_response is not None:
+        return error_response, error_status
+
     try:
         limit = int(request.args.get("limit", 40))
     except ValueError:
         limit = 40
-    return jsonify(tools.get_order_sample_for_flow(from_state, to_state, limit))
+
+    return jsonify(
+        tools.get_order_sample_for_flow(
+            from_state,
+            to_state,
+            limit,
+            start_date,
+            end_date,
+        )
+    )
 
 
 @app.post("/chat")
