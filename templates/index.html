@@ -95,6 +95,7 @@
     gap: 4px;
   }
   .history-item {
+    position: relative;
     display: block;
     width: 100%;
     text-align: left;
@@ -102,53 +103,43 @@
     border: 1px solid transparent;
     color: var(--muted);
     border-radius: 7px;
-    padding: 8px 9px;
-    cursor: default;
+    padding: 8px 36px 8px 9px;
+    cursor: pointer;
     font-family: var(--sans);
+    transition: background .15s ease, border-color .15s ease;
   }
+
   .history-item:hover {
     background: var(--panel-2);
     border-color: var(--border);
-  .history-item {
-  position: relative;
-  padding-right: 34px;
   }
 
   .history-delete {
     position: absolute;
     top: 50%;
-    right: 8px;
+    right: 7px;
     transform: translateY(-50%);
-
     width: 24px;
     height: 24px;
-
     display: grid;
     place-items: center;
-
     background: transparent;
     border: none;
     border-radius: 5px;
-
     color: #687486;
     font-size: 13px;
-
     cursor: pointer;
-    opacity: 0;
-    ransition:
-      opacity .15s ease,
+    opacity: 0.75;
+    transition:
       background .15s ease,
-      color .15s ease;
-  }
-
-  .history-item:hover .history-delete {
-    opacity: 1;
+      color .15s ease,
+      opacity .15s ease;
   }
 
   .history-delete:hover {
+    opacity: 1;
     color: var(--red);
     background: rgba(224, 97, 90, 0.10);
-  }  
   }
   .history-title {
     color: var(--text);
@@ -785,24 +776,44 @@ function createConversationId() {
 
   return `conv_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
-function deleteHistoryItem(id) {
+async function deleteHistoryItem(conversationId) {
   const history = loadHistory();
+  const target = history.find(item => item.id === conversationId);
 
-  const index = history.findIndex(item => item.id === id);
-  if (index < 0 || index >= history.length) return;
+  if (!target) return;
 
-  const item = history[index];
-
+  const title = target.title || 'Cuộc trò chuyện';
   const confirmed = window.confirm(
-    `Xóa cuộc trò chuyện "${item.title || 'Cuộc trò chuyện'}"?`
+    'Xóa cuộc trò chuyện "' + title + '"?'
   );
 
   if (!confirmed) return;
 
-  history.splice(index, 1);
+  const newHistory = history.filter(
+    item => item.id !== conversationId
+  );
 
-  saveHistory(history);
+  saveHistory(newHistory);
   renderHistory();
+
+  if (currentConversation.id === conversationId) {
+    await resetBackendContext();
+
+    currentConversation = {
+      active: false,
+      id: null,
+      title: '',
+      messages: [],
+      createdAt: null,
+      updatedAt: null,
+    };
+
+    resetBtn.disabled = true;
+    showEmptyState(
+      'Cuộc trò chuyện đã được xóa. Bắt đầu câu hỏi mới bên dưới 👇'
+    );
+    input.focus();
+  }
 }
 
 function truncateTitle(text, maxLength = 55) {
@@ -1056,6 +1067,68 @@ async function restoreBackendContext(messages) {
   return true;
 }
 
+async function openConversation(conversationId) {
+  if (sendBtn.disabled) return;
+
+  const history = loadHistory();
+  const target = history.find(item => item.id === conversationId);
+
+  if (!target) {
+    console.warn('Không tìm thấy conversation:', conversationId);
+    return;
+  }
+
+  if (currentConversation.active && currentConversation.id === conversationId) {
+    input.focus();
+    return;
+  }
+
+  if (currentConversation.active) {
+    const shouldSwitch = window.confirm(
+      'Bạn đang ở một cuộc trò chuyện khác. Chuyển sang cuộc trò chuyện này?'
+    );
+
+    if (!shouldSwitch) return;
+
+    await resetBackendContext();
+    finishConversation();
+  } else {
+    await resetBackendContext();
+  }
+
+  try {
+    await restoreBackendContext(target.messages);
+
+    currentConversation = {
+      active: true,
+      id: target.id,
+      title: target.title,
+      messages: JSON.parse(JSON.stringify(target.messages)),
+      createdAt: target.createdAt || null,
+      updatedAt: target.updatedAt || null,
+    };
+
+    renderConversationMessages(currentConversation.messages);
+    resetBtn.disabled = false;
+    input.focus();
+  } catch (err) {
+    console.error('Không thể mở conversation:', err);
+    await resetBackendContext();
+
+    currentConversation = {
+      active: false,
+      id: null,
+      title: '',
+      messages: [],
+      createdAt: null,
+      updatedAt: null,
+    };
+
+    resetBtn.disabled = true;
+    showEmptyState('Không thể khôi phục cuộc trò chuyện này.');
+  }
+}
+
 async function deleteHistoryItem(conversationId) {
   const history = loadHistory();
 
@@ -1198,10 +1271,10 @@ document.querySelectorAll('[data-q]').forEach(el => {
 
 /*
  * "Thoát cuộc trò chuyện":
- * - Chỉ lưu vào lịch sử nếu đã thực sự có ít nhất 1 câu hỏi.
- * - Lưu tiêu đề + số lượt hỏi vào localStorage.
+ * - Chỉ lưu vào lịch sử nếu đã thực sự có nội dung.
+ * - Lưu toàn bộ messages vào localStorage để có thể mở lại.
  * - Gọi backend reset để xoá context hiện tại.
- * - Sau khi thoát, khu vực lịch sử mới xuất hiện ở sidebar.
+ * - Sau khi thoát, khu vực lịch sử xuất hiện ở sidebar.
  */
 resetBtn.addEventListener('click', async () => {
   if (
