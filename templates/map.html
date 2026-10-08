@@ -3,1610 +3,217 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Bản đồ Logistics — AI Logistics Agent</title>
-
+<title>Bản đồ luồng đơn hàng — AI Logistics Agent</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
-    --bg: #0b1118;
-    --panel: #141d27;
-    --panel-2: #1a2531;
-    --panel-3: #202d3b;
-    --border: #2a3949;
-    --text: #e8edf3;
-    --muted: #8c99a8;
-    --teal: #2fbfa0;
-    --amber: #e8a23d;
-    --red: #e0615a;
-    --blue: #63a4ff;
-    --sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --bg: #0F151E; --panel: #161F2B; --panel-2: #1C2733; --border: #263241;
+    --text: #E7EAEF; --muted: #8B96A6; --teal: #2FBFA0; --amber: #E8A23D; --red: #E0615A;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
-
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
-  body {
-    font-family: var(--sans);
-    background: var(--bg);
-    color: var(--text);
-    overflow: hidden;
-  }
+  body { font-family: var(--sans); background: var(--bg); color: var(--text); }
 
   header {
-    height: 50px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 18px;
-    border-bottom: 1px solid var(--border);
-    background: var(--panel);
-    position: relative;
-    z-index: 1200;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--panel);
   }
-
-  header h1 {
-    margin: 0;
-    font-size: 15px;
-    font-weight: 750;
-    letter-spacing: .1px;
-  }
-
-  header a {
-    color: var(--muted);
-    text-decoration: none;
-    font-size: 12.5px;
-  }
-
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; }
+  header a { color: var(--muted); text-decoration: none; font-size: 13px; }
   header a:hover { color: var(--teal); }
 
   .banner {
-    position: absolute;
-    top: 50px;
-    left: 0;
-    right: 0;
-    z-index: 1100;
-    padding: 6px 18px;
-    border-bottom: 1px solid rgba(232,162,61,.25);
-    background: rgba(232,162,61,.09);
-    color: #e9b35f;
-    font-size: 11.5px;
-    text-align: center;
-    pointer-events: none;
+    background: rgba(232, 162, 61, 0.1); border-bottom: 1px solid rgba(232, 162, 61, 0.3);
+    color: var(--amber); font-size: 12.5px; padding: 8px 20px; text-align: center;
   }
 
-  #map {
-    position: absolute;
-    top: 50px;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: #091018;
+  #map { height: calc(100vh - 92px); width: 100%; background: var(--bg); }
+
+  .controls {
+    position: absolute; top: 110px; left: 16px; z-index: 1000;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; font-size: 13px; max-width: 260px; box-shadow: 0 4px 16px rgba(0,0,0,.4);
   }
-
-  .leaflet-container { background: #091018; }
-  .leaflet-control-zoom {
-    border: 1px solid var(--border) !important;
-    box-shadow: 0 5px 18px rgba(0,0,0,.35);
+  .controls .title { font-weight: 700; margin-bottom: 6px; }
+  .controls .sub { color: var(--muted); font-size: 12px; margin-bottom: 10px; line-height: 1.5; }
+  .controls button {
+    background: var(--teal); color: #06251E; border: none; font-weight: 600; font-size: 12.5px;
+    padding: 7px 12px; border-radius: 7px; cursor: pointer; width: 100%;
   }
-  .leaflet-control-zoom a {
-    background: var(--panel) !important;
-    color: var(--text) !important;
-    border-bottom-color: var(--border) !important;
-  }
+  .controls button:disabled { opacity: .4; cursor: default; }
+  .controls .stat { display: flex; justify-content: space-between; margin: 3px 0; color: var(--muted); }
+  .controls .stat b { color: var(--text); }
 
-  .panel {
-    position: absolute;
-    top: 68px;
-    left: 14px;
-    z-index: 1000;
-    width: 365px;
-    max-height: calc(100vh - 84px);
-    overflow-y: auto;
-    padding: 13px;
-    border: 1px solid var(--border);
-    border-radius: 13px;
-    background: rgba(20,29,39,.95);
-    backdrop-filter: blur(10px);
-    box-shadow: 0 10px 35px rgba(0,0,0,.4);
-    scrollbar-width: thin;
-  }
-
-  .panel.hidden { display: none; }
-
-  .eyebrow {
-    color: var(--muted);
-    font-size: 10.5px;
-    text-transform: uppercase;
-    letter-spacing: .7px;
-    margin-bottom: 4px;
-  }
-
-  .title-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-
-  .title {
-    font-size: 15px;
-    font-weight: 760;
-  }
-
-  .sub {
-    color: var(--muted);
-    font-size: 11.5px;
-    line-height: 1.55;
-    margin-top: 5px;
-  }
-
-  .mode-tabs {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 6px;
-    margin: 11px 0;
-  }
-
-  .mode-tabs button, .mini-btn {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--panel-2);
-    color: var(--muted);
-    font-size: 11.5px;
-    font-weight: 700;
-    cursor: pointer;
-    padding: 8px 9px;
-    transition: .15s ease;
-  }
-
-  .mode-tabs button:hover, .mini-btn:hover {
-    border-color: #3b4e62;
-    color: var(--text);
-  }
-
-  .mode-tabs button.active {
-    background: rgba(47,191,160,.13);
-    color: var(--teal);
-    border-color: rgba(47,191,160,.4);
-  }
-
-  .filter-box {
-    border: 1px solid var(--border);
-    background: rgba(255,255,255,.015);
-    border-radius: 10px;
-    padding: 10px;
-    margin-top: 9px;
-  }
-
-  .filter-title {
-    font-size: 11.5px;
-    font-weight: 750;
-    margin-bottom: 8px;
-  }
-
-  .date-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 7px;
-  }
-
-  .field label {
-    display: block;
-    color: var(--muted);
-    font-size: 10.5px;
-    margin-bottom: 4px;
-  }
-
-  input[type="date"] {
-    width: 100%;
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    background: var(--panel-2);
-    color: var(--text);
-    padding: 7px 8px;
-    font: inherit;
-    font-size: 11.5px;
-  }
-
-  .filter-actions {
-    display: flex;
-    gap: 6px;
-    margin-top: 7px;
-  }
-
-  .filter-actions button {
-    flex: 1;
-  }
-
-  .primary {
-    border: 1px solid rgba(47,191,160,.45);
-    background: rgba(47,191,160,.12);
-    color: var(--teal);
-  }
-
-  .quick-years {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
-    margin-top: 7px;
-  }
-
-  .year-chip {
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--panel-2);
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 10.5px;
-    padding: 4px 8px;
-  }
-
-  .year-chip:hover { color: var(--text); }
-
-  .stats {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 7px;
-    margin-top: 10px;
-  }
-
-  .stat-card {
-    padding: 9px 10px;
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    background: var(--panel-2);
-  }
-
-  .stat-label {
-    color: var(--muted);
-    font-size: 10px;
-    margin-bottom: 3px;
-  }
-
-  .stat-value {
-    font-size: 15px;
-    font-weight: 780;
-  }
-
-  .stat-value.risk-low { color: var(--teal); }
-  .stat-value.risk-mid { color: var(--amber); }
-  .stat-value.risk-high { color: var(--red); }
-
-  .section {
-    margin-top: 11px;
-    padding-top: 10px;
-    border-top: 1px solid var(--border);
-  }
-
-  .section-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 7px;
-  }
-
-  .section-head strong { font-size: 11.5px; }
-
-  .trend-wrap {
-    border: 1px solid var(--border);
-    background: var(--panel-2);
-    border-radius: 9px;
-    padding: 8px;
-  }
-
-  #trendSvg {
-    width: 100%;
-    height: 90px;
-    display: block;
-  }
-
-  .trend-meta {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    margin-top: 4px;
-    color: var(--muted);
-    font-size: 10px;
-  }
-
-  .compare-form {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 7px;
-  }
-
-  .compare-block {
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    background: var(--panel-2);
-    padding: 8px;
-  }
-
-  .compare-label {
-    color: var(--muted);
-    font-size: 10.5px;
-    font-weight: 750;
-    margin-bottom: 6px;
-  }
-
-  .compare-summary {
-    display: grid;
-    gap: 5px;
-    margin-top: 8px;
-  }
-
-  .delta-good { color: var(--teal); }
-  .delta-bad { color: var(--red); }
-  .delta-neutral { color: var(--muted); }
-
-  .sample-controls {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 7px;
-  }
-
-  select {
-    width: 100%;
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    background: var(--panel-2);
-    color: var(--text);
-    padding: 7px 8px;
-    font: inherit;
-    font-size: 11px;
-  }
-
-  .back-btn {
-    width: 100%;
-    margin-top: 8px;
-  }
-
-  .legend {
-    position: absolute;
-    right: 14px;
-    bottom: 15px;
-    z-index: 1000;
-    width: 215px;
-    padding: 10px 11px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: rgba(20,29,39,.94);
-    backdrop-filter: blur(8px);
-    box-shadow: 0 8px 25px rgba(0,0,0,.35);
-    font-size: 10.5px;
-  }
-
-  .legend.hidden { display: none; }
-  .legend-title {
-    font-size: 11px;
-    font-weight: 780;
-    margin-bottom: 7px;
-  }
-
-  .legend-row {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    margin: 5px 0;
-    color: var(--muted);
-  }
-
-  .legend-dot {
-    width: 11px;
-    height: 11px;
-    border-radius: 50%;
-    flex: 0 0 auto;
-  }
-
-  .legend-line {
-    width: 26px;
-    border-top-style: solid;
-    flex: 0 0 auto;
-  }
-
-  .loading {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%,-50%);
-    z-index: 1050;
-    padding: 9px 12px;
-    border: 1px solid var(--border);
-    border-radius: 9px;
-    background: rgba(20,29,39,.96);
-    color: var(--muted);
-    font-size: 11.5px;
-    box-shadow: 0 8px 25px rgba(0,0,0,.4);
-  }
-
-  .state-label {
-    color: #dfe7ee;
-    background: rgba(10,16,23,.78);
-    border: 1px solid rgba(87,105,123,.55);
-    border-radius: 999px;
-    padding: 2px 5px;
-    font-size: 9px;
-    font-weight: 800;
-    line-height: 1.1;
-    text-align: center;
-    box-shadow: 0 2px 8px rgba(0,0,0,.3);
-  }
-
-  .leaflet-tooltip {
-    background: var(--panel-3);
-    color: var(--text);
-    border: 1px solid var(--border);
-    font-size: 11px;
-    box-shadow: 0 6px 15px rgba(0,0,0,.3);
-  }
-
-  .leaflet-popup-content-wrapper, .leaflet-popup-tip {
-    background: var(--panel-3);
-    color: var(--text);
-  }
-
-  .leaflet-popup-content {
-    font-size: 11.5px;
-    line-height: 1.62;
-    margin: 11px 13px;
-  }
-
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--panel-2); color: var(--text); }
+  .leaflet-popup-content { font-size: 12.5px; line-height: 1.6; }
   .leaflet-popup-content b { color: var(--teal); }
+  .leaflet-tooltip { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); font-size: 12px; }
 
-  @media (max-width: 800px) {
-    .panel {
-      width: min(92vw, 365px);
-      max-height: calc(100vh - 110px);
-      top: 78px;
-    }
-
-    .legend {
-      right: 10px;
-      bottom: 10px;
-      width: 185px;
-      font-size: 9.5px;
-    }
-
-    .banner { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  }
+  .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); color: var(--muted); z-index: 999; }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>🗺️ Logistics Network Map · Olist Brazil</h1>
+  <h1>🗺️ Bản đồ luồng đơn hàng — Olist</h1>
   <a href="/">← Quay lại chat</a>
 </header>
-
 <div class="banner">
-  Tọa độ được mô phỏng từ centroid zip-code/khu vực trong Olist — biểu diễn luồng phân tích, không phải GPS thời gian thực.
+  Mô phỏng minh hoạ dựa trên toạ độ trung bình theo khu vực (zip code) — không phải vị trí GPS thời gian thực của đơn hàng.
 </div>
 
-<div id="map"></div>
+<div style="position:relative;">
+  <div id="map"></div>
+  <div class="loading" id="loadingMsg">Đang tải dữ liệu luồng đơn hàng…</div>
 
-<div class="loading" id="loadingMsg">Đang tải dữ liệu bản đồ…</div>
-
-<div class="panel" id="panel">
-  <div class="eyebrow" id="eyebrow">Operations intelligence</div>
-  <div class="title-row">
-    <div class="title" id="panelTitle">Luồng giao hàng</div>
+  <div class="controls" id="controls" style="display:none;">
+    <div class="title" id="ctrlTitle">Luồng theo bang (toàn quốc)</div>
+    <div class="sub" id="ctrlSub">Hover để xem nhanh, bấm vào 1 luồng để xem từng đơn hàng mẫu di chuyển.</div>
+    <div id="ctrlStats"></div>
+    <button id="backBtn" style="display:none; margin-top:8px;">← Quay lại tổng thể</button>
   </div>
-  <div class="sub" id="panelSub">
-    Độ dày luồng = số đơn · màu = tỉ lệ giao trễ · click để drill-down từng đơn.
-  </div>
-
-  <div class="mode-tabs">
-    <button id="modeFlow" class="active">Flow</button>
-    <button id="modeRisk">Risk</button>
-    <button id="modeCompare">Compare</button>
-  </div>
-
-  <div class="filter-box" id="globalFilterBox">
-    <div class="filter-title">Khoảng thời gian · theo ngày đặt hàng</div>
-    <div class="date-grid">
-      <div class="field">
-        <label for="startDate">Từ ngày</label>
-        <input id="startDate" type="date">
-      </div>
-      <div class="field">
-        <label for="endDate">Đến ngày</label>
-        <input id="endDate" type="date">
-      </div>
-    </div>
-    <div class="quick-years" id="quickYears"></div>
-    <div class="filter-actions">
-      <button class="mini-btn primary" id="applyFilter">Áp dụng</button>
-      <button class="mini-btn" id="clearFilter">Toàn bộ dữ liệu</button>
-    </div>
-  </div>
-
-  <div class="stats" id="stats"></div>
-
-  <div class="section" id="trendSection">
-    <div class="section-head">
-      <strong>Xu hướng giao trễ</strong>
-      <span class="sub" id="trendCaption"></span>
-    </div>
-    <div class="trend-wrap">
-      <svg id="trendSvg" viewBox="0 0 320 90" preserveAspectRatio="none"></svg>
-      <div class="trend-meta">
-        <span id="trendFirst"></span>
-        <span id="trendPeak"></span>
-        <span id="trendLast"></span>
-      </div>
-    </div>
-  </div>
-
-  <div class="section hidden" id="compareSection">
-    <div class="section-head">
-      <strong>So sánh hai giai đoạn</strong>
-      <span class="sub">B - A</span>
-    </div>
-
-    <div class="compare-form">
-      <div class="compare-block">
-        <div class="compare-label">Period A</div>
-        <div class="field">
-          <label for="aStart">Từ</label>
-          <input id="aStart" type="date">
-        </div>
-        <div class="field" style="margin-top:6px;">
-          <label for="aEnd">Đến</label>
-          <input id="aEnd" type="date">
-        </div>
-      </div>
-
-      <div class="compare-block">
-        <div class="compare-label">Period B</div>
-        <div class="field">
-          <label for="bStart">Từ</label>
-          <input id="bStart" type="date">
-        </div>
-        <div class="field" style="margin-top:6px;">
-          <label for="bEnd">Đến</label>
-          <input id="bEnd" type="date">
-        </div>
-      </div>
-    </div>
-
-    <div class="filter-actions">
-      <button class="mini-btn primary" id="applyCompare">So sánh</button>
-    </div>
-
-    <div class="compare-summary" id="compareSummary"></div>
-  </div>
-
-  <div class="section hidden" id="detailSection">
-    <div class="section-head">
-      <strong>Drill-down đơn hàng</strong>
-      <span class="sub" id="detailAvailable"></span>
-    </div>
-
-    <div class="sample-controls">
-      <div>
-        <div class="field">
-          <label for="sampleStatus">Hiển thị</label>
-          <select id="sampleStatus">
-            <option value="all">Tất cả</option>
-            <option value="late">Chỉ trễ</option>
-            <option value="on_time">Chỉ đúng hẹn</option>
-          </select>
-        </div>
-      </div>
-      <div>
-        <div class="field">
-          <label for="sampleLimit">Số đơn animation</label>
-          <select id="sampleLimit">
-            <option value="10">10</option>
-            <option value="20">20</option>
-            <option value="40" selected>40</option>
-          </select>
-        </div>
-      </div>
-    </div>
-
-    <button class="mini-btn back-btn" id="backBtn">← Quay lại toàn quốc</button>
-  </div>
-
-  <div class="section hidden" id="detailStatsSection"></div>
-</div>
-
-<div class="legend" id="legend">
-  <div class="legend-title" id="legendTitle">Flow legend</div>
-  <div id="legendBody"></div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
-
 <script>
-const GEOJSON_URLS = [
-  'https://cdn.jsdelivr.net/gh/henriquemalvar/br-geojson@main/dist/estados.geojson',
-  'https://raw.githubusercontent.com/henriquemalvar/br-geojson/main/dist/estados.geojson',
-];
-const GEOJSON_TIMEOUT_MS = 5000;
-
-const map = L.map('map', {
-  zoomControl: true,
-  minZoom: 3.6,
-  maxZoom: 11,
-  maxBounds: [[-35.5, -76.5], [7.2, -30.0]],
-  maxBoundsViscosity: 1.0,
-}).setView([-14.5, -51.9], 4.5);
-
+const map = L.map('map', { zoomControl: true }).setView([-14.5, -51.9], 4.3);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap',
-  opacity: 0.55,
-  maxZoom: 19,
+  attribution: '&copy; OpenStreetMap', opacity: 0.55,
 }).addTo(map);
 
-const loadingMsg = document.getElementById('loadingMsg');
-const panelTitle = document.getElementById('panelTitle');
-const panelSub = document.getElementById('panelSub');
-const stats = document.getElementById('stats');
-const legend = document.getElementById('legend');
-const legendTitle = document.getElementById('legendTitle');
-const legendBody = document.getElementById('legendBody');
-
-const startDate = document.getElementById('startDate');
-const endDate = document.getElementById('endDate');
-const quickYears = document.getElementById('quickYears');
-
-const modeFlow = document.getElementById('modeFlow');
-const modeRisk = document.getElementById('modeRisk');
-const modeCompare = document.getElementById('modeCompare');
-
-const trendSection = document.getElementById('trendSection');
-const trendSvg = document.getElementById('trendSvg');
-const trendCaption = document.getElementById('trendCaption');
-const trendFirst = document.getElementById('trendFirst');
-const trendPeak = document.getElementById('trendPeak');
-const trendLast = document.getElementById('trendLast');
-
-const compareSection = document.getElementById('compareSection');
-const compareSummary = document.getElementById('compareSummary');
-const aStart = document.getElementById('aStart');
-const aEnd = document.getElementById('aEnd');
-const bStart = document.getElementById('bStart');
-const bEnd = document.getElementById('bEnd');
-
-const detailSection = document.getElementById('detailSection');
-const detailAvailable = document.getElementById('detailAvailable');
-const detailStatsSection = document.getElementById('detailStatsSection');
-const sampleStatus = document.getElementById('sampleStatus');
-const sampleLimit = document.getElementById('sampleLimit');
+const controls = document.getElementById('controls');
+const ctrlTitle = document.getElementById('ctrlTitle');
+const ctrlSub = document.getElementById('ctrlSub');
+const ctrlStats = document.getElementById('ctrlStats');
 const backBtn = document.getElementById('backBtn');
+const loadingMsg = document.getElementById('loadingMsg');
 
-const flowLayer = L.layerGroup().addTo(map);
-const detailLayer = L.layerGroup().addTo(map);
-const stateLayer = L.geoJSON(null, {
-  style: function() {
-    return {
-      color: '#536373',
-      weight: 1,
-      opacity: 0.6,
-      fillColor: '#13202b',
-      fillOpacity: 0.16,
-    };
-  },
-});
-const labelLayer = L.layerGroup().addTo(map);
-
-let stateGeoJson = null;
-let flowData = [];
-let stateData = [];
-let trendData = [];
-let compareA = null;
-let compareB = null;
-
-let currentMode = 'flow';
-let currentView = 'aggregate';
-let currentFilter = { start_date: '', end_date: '' };
-let detailOrders = [];
-let detailFlow = null;
-let allDateMin = '';
-let allDateMax = '';
-
+let flowLayer = L.layerGroup().addTo(map);
+let detailLayer = L.layerGroup().addTo(map);
 let animHandles = [];
-
-function safe(value) {
-  return String(value == null ? '' : value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-function fmt(value, digits = 0) {
-  const n = Number(value || 0);
-  return n.toLocaleString('en-US', {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits
-  });
-}
-
-function fmtPct(value) {
-  return fmt(value, 1) + '%';
-}
-
-function riskBand(pct) {
-  const n = Number(pct || 0);
-  if (n < 5) return 'LOW';
-  if (n < 15) return 'MEDIUM';
-  return 'HIGH';
-}
+let allFlows = [];
 
 function colorForLateRate(pct) {
-  const t = Math.max(0, Math.min(1, Number(pct || 0) / 20));
+  // 0% -> xanh teal, >=20% -> đỏ, nội suy tuyến tính qua vàng
+  const t = Math.max(0, Math.min(1, pct / 20));
   const r = Math.round(47 + t * (224 - 47));
   const g = Math.round(191 + t * (97 - 191));
   const b = Math.round(160 + t * (90 - 160));
-  return 'rgb(' + r + ',' + g + ',' + b + ')';
-}
-
-function colorForDelta(delta) {
-  const d = Math.max(-8, Math.min(8, Number(delta || 0)));
-  if (Math.abs(d) < 0.25) return '#6f7d8b';
-
-  if (d < 0) {
-    const t = Math.min(1, Math.abs(d) / 8);
-    const r = Math.round(42 + (47 - 42) * t);
-    const g = Math.round(108 + (191 - 108) * t);
-    const b = Math.round(110 + (160 - 110) * t);
-    return 'rgb(' + r + ',' + g + ',' + b + ')';
-  }
-
-  const t = Math.min(1, d / 8);
-  const r = Math.round(120 + (224 - 120) * t);
-  const g = Math.round(120 + (97 - 120) * t);
-  const b = Math.round(120 + (90 - 120) * t);
-  return 'rgb(' + r + ',' + g + ',' + b + ')';
+  return `rgb(${r},${g},${b})`;
 }
 
 function stopAnimations() {
-  animHandles.forEach(function(h) { cancelAnimationFrame(h); });
+  animHandles.forEach(h => cancelAnimationFrame(h));
   animHandles = [];
 }
 
-function showLoading(message) {
-  loadingMsg.textContent = message || 'Đang tải…';
+// ========== Màn hình tổng thể: luồng gộp theo bang ==========
+async function loadFlowMap() {
   loadingMsg.style.display = 'block';
-}
-
-function hideLoading() {
+  const res = await fetch('/api/map/flows');
+  const data = await res.json();
+  allFlows = data.flows || [];
   loadingMsg.style.display = 'none';
+  controls.style.display = 'block';
+  renderAggregateView();
 }
 
-async function fetchJson(url) {
-  const res = await fetch(url);
-  let data = {};
-  try {
-    data = await res.json();
-  } catch (e) {
-    throw new Error('Server không trả về JSON hợp lệ.');
-  }
-  if (!res.ok || data.error) {
-    throw new Error(data.error || 'API map trả về lỗi ' + res.status);
-  }
-  return data;
-}
+function renderAggregateView() {
+  stopAnimations();
+  detailLayer.clearLayers();
+  flowLayer.clearLayers();
+  backBtn.style.display = 'none';
+  ctrlTitle.textContent = 'Luồng theo bang (toàn quốc)';
+  ctrlSub.textContent = 'Hover để xem nhanh, bấm vào 1 luồng để xem từng đơn hàng mẫu di chuyển.';
+  ctrlStats.innerHTML = `<div class="stat">Tổng số luồng<b>${allFlows.length}</b></div>`;
 
-function buildQuery(params) {
-  const qs = new URLSearchParams();
-  if (params.start_date) qs.set('start_date', params.start_date);
-  if (params.end_date) qs.set('end_date', params.end_date);
-  const text = qs.toString();
-  return text ? '?' + text : '';
-}
+  const maxN = Math.max(...allFlows.map(f => f.n_orders));
 
-function setActiveMode(mode) {
-  currentMode = mode;
-  modeFlow.classList.toggle('active', mode === 'flow');
-  modeRisk.classList.toggle('active', mode === 'risk');
-  modeCompare.classList.toggle('active', mode === 'compare');
+  allFlows.forEach(f => {
+    const weight = 1 + 7 * Math.log1p(f.n_orders) / Math.log1p(maxN);
+    const color = colorForLateRate(f.late_rate_pct);
+    let layer;
 
-  compareSection.classList.toggle('hidden', mode !== 'compare');
-  globalFilterBoxVisible();
-}
-
-function globalFilterBoxVisible() {
-  document.getElementById('globalFilterBox').style.display =
-    (currentView === 'detail' || currentMode === 'compare') ? 'none' : 'block';
-}
-
-function setViewHeader() {
-  if (currentView === 'detail') return;
-
-  if (currentMode === 'flow') {
-    panelTitle.textContent = 'Luồng giao hàng';
-    panelSub.textContent = 'Độ dày luồng = số đơn · màu = tỉ lệ giao trễ · click để drill-down từng đơn.';
-  } else if (currentMode === 'risk') {
-    panelTitle.textContent = 'Delivery Risk by State';
-    panelSub.textContent = 'Choropleth theo customer_state · hover để xem risk · màu càng đỏ càng nhiều đơn trễ.';
-  } else {
-    panelTitle.textContent = 'Risk Change · Period B − A';
-    panelSub.textContent = 'So sánh tỉ lệ giao trễ giữa hai giai đoạn · đỏ = xấu đi · xanh = cải thiện.';
-  }
-}
-
-function renderStats(items) {
-  stats.innerHTML = items.map(function(item) {
-    return '<div class="stat-card">'
-      + '<div class="stat-label">' + safe(item.label) + '</div>'
-      + '<div class="stat-value ' + (item.className || '') + '">' + safe(item.value) + '</div>'
-      + '</div>';
-  }).join('');
-}
-
-function updateQuickYears() {
-  quickYears.innerHTML = '';
-  if (!allDateMin || !allDateMax) return;
-
-  const y1 = Number(allDateMin.slice(0,4));
-  const y2 = Number(allDateMax.slice(0,4));
-
-  const allBtn = document.createElement('button');
-  allBtn.className = 'year-chip';
-  allBtn.textContent = 'ALL';
-  allBtn.addEventListener('click', function() {
-    startDate.value = '';
-    endDate.value = '';
-    applyGlobalFilter();
-  });
-  quickYears.appendChild(allBtn);
-
-  for (let y = y1; y <= y2; y++) {
-    const btn = document.createElement('button');
-    btn.className = 'year-chip';
-    btn.textContent = String(y);
-    btn.addEventListener('click', function() {
-      startDate.value = String(y) + '-01-01';
-      endDate.value = String(y) + '-12-31';
-      applyGlobalFilter();
-    });
-    quickYears.appendChild(btn);
-  }
-}
-
-function setDefaultComparePeriods() {
-  if (!allDateMin || !allDateMax) return;
-  const y1 = Number(allDateMin.slice(0,4));
-  const y2 = Number(allDateMax.slice(0,4));
-
-  aStart.value = allDateMin;
-  aEnd.value = y1 + '-12-31';
-  bStart.value = y2 + '-01-01';
-  bEnd.value = allDateMax;
-
-  if (aStart.value > aEnd.value) {
-    aStart.value = allDateMin;
-    aEnd.value = allDateMax;
-  }
-
-  if (bStart.value > bEnd.value) {
-    bStart.value = allDateMin;
-    bEnd.value = allDateMax;
-  }
-}
-
-async function fetchWithTimeout(url, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(function() { controller.abort(); }, timeoutMs);
-
-  try {
-    return await fetch(url, { signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function loadGeoJson() {
-  if (stateGeoJson) return true;
-
-  for (const url of GEOJSON_URLS) {
-    try {
-      const res = await fetchWithTimeout(url, GEOJSON_TIMEOUT_MS);
-      if (!res.ok) continue;
-
-      const geo = await res.json();
-      if (!geo || !Array.isArray(geo.features) || !geo.features.length) {
-        continue;
-      }
-
-      stateGeoJson = geo;
-      stateLayer.addData(geo);
-      stateLayer.addTo(map);
-
-      const bounds = stateLayer.getBounds();
-      if (bounds.isValid() && !flowData.length && !stateData.length) {
-        map.fitBounds(bounds, { padding: [25, 25] });
-      }
-
-      if (flowData.length || stateData.length || trendData.length) {
-        renderCurrentMode();
-      }
-
-      return true;
-    } catch (err) {
-      console.warn('Không tải được GeoJSON từ', url, err);
-    }
-  }
-
-  console.warn('Không tải được GeoJSON; tiếp tục chạy map không có ranh giới bang.');
-  return false;
-}
-
-function stateCode(feature) {
-  return feature && feature.properties
-    ? String(feature.properties.sigla || feature.properties.uf || '').toUpperCase()
-    : '';
-}
-
-function stateName(feature) {
-  return feature && feature.properties
-    ? (feature.properties.nome || feature.properties.name || stateCode(feature))
-    : stateCode(feature);
-}
-
-function updateStateLayers(mode, metricsMap) {
-  stateLayer.eachLayer(function(layer) {
-    const feature = layer.feature;
-    const code = stateCode(feature);
-    const name = stateName(feature);
-    const metric = metricsMap[code];
-
-    let fill = '#13202b';
-    let fillOpacity = 0.12;
-    let border = '#536373';
-    let weight = 1;
-
-    if (mode === 'risk' && metric) {
-      fill = colorForLateRate(metric.late_rate_pct);
-      fillOpacity = 0.58;
-      border = '#9aabbc';
-      weight = 1.2;
-    }
-
-    if (mode === 'compare' && metric) {
-      fill = colorForDelta(metric.delta_late_rate);
-      fillOpacity = 0.62;
-      border = '#9aabbc';
-      weight = 1.2;
-    }
-
-    layer.setStyle({
-      color: border,
-      weight: weight,
-      opacity: 0.72,
-      fillColor: fill,
-      fillOpacity: fillOpacity,
-    });
-
-    layer.unbindTooltip();
-
-    if (mode === 'risk' && metric) {
-      layer.bindTooltip(
-        '<b>' + safe(code) + ' · ' + safe(name) + '</b><br>'
-        + 'Orders: ' + fmt(metric.n_orders)
-        + '<br>Late rate: <b>' + fmtPct(metric.late_rate_pct) + '</b>'
-        + '<br>Avg delivery: ' + fmt(metric.avg_delivery_days, 1) + ' ngày'
-        + '<br>Avg distance: ' + fmt(metric.avg_distance_km, 0) + ' km',
-        { sticky: true }
-      );
-    } else if (mode === 'compare' && metric) {
-      const delta = Number(metric.delta_late_rate || 0);
-      layer.bindTooltip(
-        '<b>' + safe(code) + ' · ' + safe(name) + '</b><br>'
-        + 'Period A: ' + fmtPct(metric.a_late_rate)
-        + '<br>Period B: ' + fmtPct(metric.b_late_rate)
-        + '<br>Change: <b>' + (delta > 0 ? '+' : '') + fmt(delta, 1) + ' pp</b>',
-        { sticky: true }
-      );
+    if (f.from_state === f.to_state) {
+      layer = L.circleMarker([f.from_lat, f.from_lng], {
+        radius: 4 + 10 * Math.log1p(f.n_orders) / Math.log1p(maxN),
+        color, weight: 1, fillColor: color, fillOpacity: 0.35,
+      });
     } else {
-      layer.bindTooltip(
-        '<b>' + safe(code) + ' · ' + safe(name) + '</b>',
-        { sticky: true }
-      );
+      layer = L.polyline([[f.from_lat, f.from_lng], [f.to_lat, f.to_lng]], {
+        color, weight, opacity: 0.55,
+      });
     }
-  });
 
-  renderStateLabels();
-}
-
-function renderStateLabels() {
-  labelLayer.clearLayers();
-  stateLayer.eachLayer(function(layer) {
-    const code = stateCode(layer.feature);
-    if (!code) return;
-
-    const center = layer.getBounds().getCenter();
-    const marker = L.marker(center, {
-      interactive: false,
-      icon: L.divIcon({
-        className: '',
-        html: '<div class="state-label">' + safe(code) + '</div>',
-        iconSize: null,
-      })
-    });
-    labelLayer.addLayer(marker);
+    layer.bindTooltip(
+      `${f.from_state} → ${f.to_state}: ${f.n_orders.toLocaleString()} đơn, ${f.late_rate_pct}% trễ`,
+      { sticky: true }
+    );
+    layer.on('click', () => loadOrderSample(f.from_state, f.to_state));
+    layer.on('mouseover', function () { this.setStyle ? this.setStyle({ opacity: 1, fillOpacity: 0.6 }) : null; });
+    layer.on('mouseout', function () { this.setStyle ? this.setStyle({ opacity: 0.55, fillOpacity: 0.35 }) : null; });
+    layer.addTo(flowLayer);
   });
 }
 
-function metricsToMap(rows) {
-  const out = {};
-  (rows || []).forEach(function(row) {
-    out[String(row.state || '').toUpperCase()] = row;
-  });
-  return out;
+// ========== Màn hình chi tiết: animation từng đơn trong 1 cặp bang ==========
+async function loadOrderSample(fromState, toState) {
+  loadingMsg.style.display = 'block';
+  const res = await fetch(`/api/map/sample?from=${fromState}&to=${toState}&limit=40`);
+  const data = await res.json();
+  loadingMsg.style.display = 'none';
+  renderDetailView(fromState, toState, data.orders || []);
 }
 
-function flowStatsSummary() {
-  const s = flowDataSummary();
-  renderStats([
-    { label: 'Flows', value: fmt(flowData.length) },
-    { label: 'Orders', value: fmt(s.n_orders) },
-    { label: 'Late rate', value: fmtPct(s.late_rate_pct), className: lateClass(s.late_rate_pct) },
-    { label: 'Avg delivery', value: fmt(s.avg_delivery_days, 1) + ' d' },
-  ]);
-}
-
-function lateClass(pct) {
-  const band = riskBand(pct);
-  return band === 'LOW' ? 'risk-low' : band === 'MEDIUM' ? 'risk-mid' : 'risk-high';
-}
-
-function flowDataSummary() {
-  return window.__flowSummary || {
-    n_orders: 0,
-    n_late: 0,
-    late_rate_pct: 0,
-    avg_delivery_days: 0,
-    avg_distance_km: 0
-  };
-}
-
-function stateRiskSummary() {
-  const s = window.__stateSummary || {};
-  const top = stateData.length ? stateData[0] : null;
-  renderStats([
-    { label: 'States', value: fmt(stateData.length) },
-    { label: 'Orders', value: fmt(s.n_orders || 0) },
-    { label: 'Late rate', value: fmtPct(s.late_rate_pct || 0), className: lateClass(s.late_rate_pct || 0) },
-    { label: 'Top risk state', value: top ? String(top.state) : '—', className: top && Number(top.late_rate_pct) >= 15 ? 'risk-high' : 'risk-mid' },
-  ]);
-}
-
-function compareStats() {
-  if (!compareA || !compareB) {
-    renderStats([]);
-    return;
-  }
-
-  const delta = Number(compareB.summary.late_rate_pct || 0) - Number(compareA.summary.late_rate_pct || 0);
-  const cls = Math.abs(delta) < 0.25 ? 'delta-neutral' : delta > 0 ? 'delta-bad' : 'delta-good';
-
-  renderStats([
-    { label: 'Period A late', value: fmtPct(compareA.summary.late_rate_pct) },
-    { label: 'Period B late', value: fmtPct(compareB.summary.late_rate_pct) },
-    { label: 'Change', value: (delta > 0 ? '+' : '') + fmt(delta, 1) + ' pp', className: cls },
-    { label: 'B orders', value: fmt(compareB.summary.n_orders) },
-  ]);
-
-  const rowsA = metricsToMap(compareA.states);
-  const rowsB = metricsToMap(compareB.states);
-  const allStates = Array.from(new Set(Object.keys(rowsA).concat(Object.keys(rowsB))));
-
-  const deltas = allStates.map(function(code) {
-    const a = rowsA[code];
-    const b = rowsB[code];
-    return {
-      state: code,
-      delta: (b ? Number(b.late_rate_pct || 0) : 0) - (a ? Number(a.late_rate_pct || 0) : 0),
-      a: a ? Number(a.late_rate_pct || 0) : 0,
-      b: b ? Number(b.late_rate_pct || 0) : 0
-    };
-  }).sort(function(x,y) { return y.delta - x.delta; });
-
-  const worst = deltas[0];
-  const best = deltas[deltas.length - 1];
-
-  compareSummary.innerHTML =
-    '<div class="stat-card">'
-      + '<div class="stat-label">Overall change in late rate</div>'
-      + '<div class="stat-value ' + cls + '">' + (delta > 0 ? '+' : '') + fmtPct(delta) + '</div>'
-    + '</div>'
-    + (worst
-      ? '<div class="stat-card"><div class="stat-label">State worsened most</div><div class="stat-value delta-bad">'
-        + safe(worst.state) + ' · +' + fmt(worst.delta, 1) + ' pp</div></div>' : '')
-    + (best
-      ? '<div class="stat-card"><div class="stat-label">State improved most</div><div class="stat-value delta-good">'
-        + safe(best.state) + ' · ' + (best.delta > 0 ? '+' : '') + fmt(best.delta, 1) + ' pp</div></div>' : '');
-
-  const metricMap = {};
-  deltas.forEach(function(d) {
-    metricMap[d.state] = {
-      delta_late_rate: d.delta,
-      a_late_rate: d.a,
-      b_late_rate: d.b
-    };
-  });
-
-  updateStateLayers('compare', metricMap);
-}
-
-function renderTrend() {
-  const arr = trendData || [];
-  if (!arr.length) {
-    trendSvg.innerHTML = '';
-    trendFirst.textContent = '';
-    trendPeak.textContent = '';
-    trendLast.textContent = '';
-    return;
-  }
-
-  const W = 320;
-  const H = 90;
-  const padX = 7;
-  const padTop = 9;
-  const padBottom = 16;
-  const values = arr.map(function(d) { return Number(d.late_rate_pct || 0); });
-  const max = Math.max.apply(null, values.concat([1]));
-
-  const points = arr.map(function(d, i) {
-    const x = padX + (i / Math.max(1, arr.length - 1)) * (W - padX * 2);
-    const y = padTop + (1 - Number(d.late_rate_pct || 0) / max) * (H - padTop - padBottom);
-    return { x: x, y: y, v: Number(d.late_rate_pct || 0), month: d.month };
-  });
-
-  const polyline = points.map(function(p) { return p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' ');
-  const peakIndex = values.indexOf(Math.max.apply(null, values));
-
-  let svg = '';
-  svg += '<line x1="7" y1="73" x2="313" y2="73" stroke="#2a3949" stroke-width="1"/>';
-  svg += '<polyline points="' + polyline + '" fill="none" stroke="#2fbfa0" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>';
-
-  points.forEach(function(p, i) {
-    if (i === 0 || i === points.length - 1 || i === peakIndex) {
-      svg += '<circle cx="' + p.x + '" cy="' + p.y + '" r="3" fill="' + (i === peakIndex ? '#e0615a' : '#2fbfa0') + '"/>';
-    }
-  });
-
-  svg += '<text x="7" y="87" fill="#8c99a8" font-size="8">' + safe(arr[0].month) + '</text>';
-  if (arr.length > 1) {
-    svg += '<text x="285" y="87" fill="#8c99a8" font-size="8">' + safe(arr[arr.length - 1].month) + '</text>';
-  }
-
-  trendSvg.innerHTML = svg;
-  trendCaption.textContent = values.length + ' tháng';
-  trendFirst.textContent = 'Start ' + fmtPct(values[0]);
-  trendPeak.textContent = 'Peak ' + fmtPct(values[peakIndex]);
-  trendLast.textContent = 'Latest ' + fmtPct(values[values.length - 1]);
-}
-
-function setFlowLegend() {
-  legendTitle.textContent = 'Flow legend';
-  legendBody.innerHTML =
-    '<div class="legend-row"><span class="legend-dot" style="background:#2fbfa0"></span><span>Low late rate</span></div>'
-    + '<div class="legend-row"><span class="legend-dot" style="background:#e8a23d"></span><span>Medium late rate</span></div>'
-    + '<div class="legend-row"><span class="legend-dot" style="background:#e0615a"></span><span>High late rate</span></div>'
-    + '<div class="legend-row"><span class="legend-line" style="border-top-width:2px"></span><span>Ít đơn</span></div>'
-    + '<div class="legend-row"><span class="legend-line" style="border-top-width:7px"></span><span>Nhiều đơn</span></div>'
-    + '<div class="sub" style="margin-top:7px">Chiều mũi tên: seller → customer</div>';
-}
-
-function setRiskLegend() {
-  legendTitle.textContent = 'Risk legend';
-  legendBody.innerHTML =
-    '<div class="legend-row"><span class="legend-dot" style="background:#2fbfa0"></span><span>&lt; 5% · Low</span></div>'
-    + '<div class="legend-row"><span class="legend-dot" style="background:#e8a23d"></span><span>5–15% · Medium</span></div>'
-    + '<div class="legend-row"><span class="legend-dot" style="background:#e0615a"></span><span>≥ 15% · High</span></div>'
-    + '<div class="sub" style="margin-top:7px">Đơn vị risk = tỉ lệ giao trễ theo customer_state.</div>';
-}
-
-function setCompareLegend() {
-  legendTitle.textContent = 'Compare legend';
-  legendBody.innerHTML =
-    '<div class="legend-row"><span class="legend-dot" style="background:#2fbfa0"></span><span>Late rate giảm</span></div>'
-    + '<div class="legend-row"><span class="legend-dot" style="background:#6f7d8b"></span><span>Gần như không đổi</span></div>'
-    + '<div class="legend-row"><span class="legend-dot" style="background:#e0615a"></span><span>Late rate tăng</span></div>'
-    + '<div class="sub" style="margin-top:7px">Màu biểu diễn thay đổi điểm phần trăm: B − A.</div>';
-}
-
-function clearAllLayers() {
+function renderDetailView(fromState, toState, orders) {
   stopAnimations();
   flowLayer.clearLayers();
   detailLayer.clearLayers();
-  stateLayer.bringToBack();
-  labelLayer.bringToFront();
-  map.closePopup();
-}
+  backBtn.style.display = 'block';
 
-function renderAggregateFlow() {
-  currentView = 'aggregate';
-  clearAllLayers();
-  globalFilterBoxVisible();
-  setViewHeader();
-  setFlowLegend();
-  trendSection.classList.remove('hidden');
-  detailSection.classList.add('hidden');
-  detailStatsSection.classList.add('hidden');
+  const lateCount = orders.filter(o => o.is_late == 1).length;
+  ctrlTitle.textContent = `${fromState} → ${toState}`;
+  ctrlSub.textContent = `${orders.length} đơn hàng mẫu — chấm xanh = đúng hẹn, chấm đỏ = trễ. Tốc độ chạy tỉ lệ với thời gian giao thực tế. Hover/bấm vào đường nối để xem chi tiết.`;
+  ctrlStats.innerHTML = `
+    <div class="stat">Đơn mẫu<b>${orders.length}</b></div>
+    <div class="stat">Trong đó trễ<b>${lateCount}</b></div>
+  `;
 
-  flowStatsSummary();
-
-  const maxN = Math.max.apply(null, flowData.map(function(f) { return Number(f.n_orders || 0); }).concat([1]));
-  const bounds = [];
-
-  flowData.forEach(function(f) {
-    const from = [Number(f.from_lat), Number(f.from_lng)];
-    const to = [Number(f.to_lat), Number(f.to_lng)];
-    if (!Number.isFinite(from[0]) || !Number.isFinite(from[1]) || !Number.isFinite(to[0]) || !Number.isFinite(to[1])) return;
-
-    const color = colorForLateRate(f.late_rate_pct);
-    const weight = 1.5 + 7 * Math.log1p(Number(f.n_orders || 0)) / Math.log1p(maxN);
-    let line;
-
-    if (String(f.from_state) === String(f.to_state)) {
-      line = L.circleMarker(from, {
-        radius: 4 + 10 * Math.log1p(Number(f.n_orders || 0)) / Math.log1p(maxN),
-        color: color,
-        weight: 1.2,
-        fillColor: color,
-        fillOpacity: .42,
-      });
-      line.bindTooltip(
-        '<b>' + safe(f.from_state) + '</b><br>'
-        + fmt(f.n_orders) + ' đơn · ' + fmtPct(f.late_rate_pct) + ' trễ',
-        { sticky: true }
-      );
-    } else {
-      line = L.polyline([from, to], {
-        color: color,
-        weight: weight,
-        opacity: .58,
-        lineCap: 'round',
-      });
-
-      if (window.L && typeof L.polylineDecorator === 'function' && L.Symbol && typeof L.Symbol.arrowHead === 'function') {
-        const arrow = L.polylineDecorator(line, {
-          patterns: [{
-            offset: '50%',
-            repeat: 0,
-            symbol: L.Symbol.arrowHead({
-              pixelSize: 8,
-              polygon: false,
-              pathOptions: {
-                stroke: true,
-                color: color,
-                weight: 2,
-                opacity: .95,
-              }
-            })
-          }]
-        });
-        arrow.addTo(flowLayer);
-      }
-    }
-
-    line.bindTooltip(
-      '<b>' + safe(f.from_state) + ' → ' + safe(f.to_state) + '</b><br>'
-      + 'Orders: ' + fmt(f.n_orders)
-      + '<br>Late rate: <b>' + fmtPct(f.late_rate_pct) + '</b>'
-      + '<br>Avg delivery: ' + fmt(f.avg_delivery_days, 1) + ' ngày'
-      + '<br>Avg distance: ' + fmt(f.avg_distance_km, 0) + ' km',
-      { sticky: true }
-    );
-
-    line.on('mouseover', function() {
-      if (line.setStyle) line.setStyle({ opacity: 1, weight: weight + 2 });
-    });
-
-    line.on('mouseout', function() {
-      if (line.setStyle) line.setStyle({ opacity: .58, weight: weight });
-    });
-
-    line.on('click', function() {
-      loadOrderSample(f.from_state, f.to_state);
-    });
-
-    line.addTo(flowLayer);
-    bounds.push(from, to);
-  });
-
-  if (bounds.length) {
-    map.fitBounds(bounds, { padding: [45, 45], maxZoom: 6.2 });
-  }
-
-  stateLayer.bringToBack();
-  labelLayer.bringToFront();
-}
-
-function renderRiskMap() {
-  currentView = 'aggregate';
-  clearAllLayers();
-  globalFilterBoxVisible();
-  setViewHeader();
-  setRiskLegend();
-  trendSection.classList.remove('hidden');
-  detailSection.classList.add('hidden');
-  detailStatsSection.classList.add('hidden');
-
-  stateRiskSummary();
-  const metrics = metricsToMap(stateData);
-  updateStateLayers('risk', metrics);
-
-  if (stateLayer.getBounds().isValid()) {
-    map.fitBounds(stateLayer.getBounds(), { padding: [35, 35], maxZoom: 5.2 });
-  }
-}
-
-function renderCompareMap() {
-  currentView = 'aggregate';
-  clearAllLayers();
-  globalFilterBoxVisible();
-  setViewHeader();
-  setCompareLegend();
-  trendSection.classList.add('hidden');
-  detailSection.classList.add('hidden');
-  detailStatsSection.classList.add('hidden');
-  compareStats();
-
-  if (stateLayer.getBounds().isValid()) {
-    map.fitBounds(stateLayer.getBounds(), { padding: [35, 35], maxZoom: 5.2 });
-  }
-}
-
-function renderCurrentMode() {
-  if (currentMode === 'flow') renderAggregateFlow();
-  else if (currentMode === 'risk') renderRiskMap();
-  else renderCompareMap();
-  renderTrend();
-}
-
-async function loadMainData() {
-  const q = buildQuery(currentFilter);
-  showLoading('Đang tải flow, risk và xu hướng…');
-
-  const results = await Promise.allSettled([
-    fetchJson('/api/map/flows' + q),
-    fetchJson('/api/map/states' + q),
-    fetchJson('/api/map/trend' + q),
-  ]);
-
-  const flowResult = results[0];
-  const stateResult = results[1];
-  const trendResult = results[2];
-
-  flowData = flowResult.status === 'fulfilled'
-    ? (flowResult.value.flows || [])
-    : [];
-  stateData = stateResult.status === 'fulfilled'
-    ? (stateResult.value.states || [])
-    : [];
-  trendData = trendResult.status === 'fulfilled'
-    ? (trendResult.value.trend || [])
-    : [];
-
-  const flowMeta = flowResult.status === 'fulfilled' ? flowResult.value : {};
-  window.__flowSummary = flowMeta.summary || {};
-  window.__stateSummary = stateResult.status === 'fulfilled'
-    ? (stateResult.value.summary || {})
-    : {};
-
-  const warnings = [];
-  if (flowResult.status === 'rejected') warnings.push('Flow API');
-  if (stateResult.status === 'rejected') warnings.push('Risk API');
-  if (trendResult.status === 'rejected') warnings.push('Trend API');
-
-  if (warnings.length) {
-    console.error('Một số API map lỗi:', results);
-  }
-
-  const meta = flowMeta;
-  allDateMin = meta.date_min || allDateMin;
-  allDateMax = meta.date_max || allDateMax;
-
-  if (!startDate.value && !endDate.value) {
-    startDate.min = allDateMin || '';
-    startDate.max = allDateMax || '';
-    endDate.min = allDateMin || '';
-    endDate.max = allDateMax || '';
-    updateQuickYears();
-    setDefaultComparePeriods();
-  }
-
-  hideLoading();
-  renderCurrentMode();
-
-  if (warnings.length && flowData.length === 0 && stateData.length === 0) {
-    panelTitle.textContent = 'Không tải được dữ liệu map';
-    panelSub.textContent = 'Kiểm tra API map trong server logs. ' + warnings.join(', ') + ' đang lỗi.';
-  }
-
-  return {
-    flowOk: flowResult.status === 'fulfilled',
-    stateOk: stateResult.status === 'fulfilled',
-    trendOk: trendResult.status === 'fulfilled',
-  };
-}
-
-async function applyGlobalFilter() {
-  if (startDate.value && endDate.value && startDate.value > endDate.value) {
-    alert('Khoảng thời gian không hợp lệ: ngày bắt đầu phải trước hoặc bằng ngày kết thúc.');
-    return;
-  }
-
-  currentFilter = {
-    start_date: startDate.value,
-    end_date: endDate.value,
-  };
-
-  try {
-    await loadMainData();
-  } catch (err) {
-    hideLoading();
-    alert('Không tải được dữ liệu map: ' + err.message);
-  }
-}
-
-async function applyCompareFilter() {
-  if (!aStart.value || !aEnd.value || !bStart.value || !bEnd.value) {
-    alert('Vui lòng nhập đủ 4 mốc thời gian.');
-    return;
-  }
-
-  if (aStart.value > aEnd.value || bStart.value > bEnd.value) {
-    alert('Một trong hai khoảng thời gian không hợp lệ.');
-    return;
-  }
-
-  showLoading('Đang so sánh hai giai đoạn…');
-
-  try {
-    const [a, b] = await Promise.all([
-      fetchJson('/api/map/states' + buildQuery({ start_date: aStart.value, end_date: aEnd.value })),
-      fetchJson('/api/map/states' + buildQuery({ start_date: bStart.value, end_date: bEnd.value })),
-    ]);
-
-    compareA = a;
-    compareB = b;
-    hideLoading();
-    renderCompareMap();
-  } catch (err) {
-    hideLoading();
-    alert('Không thể so sánh: ' + err.message);
-  }
-}
-
-function filterDetailOrders() {
-  let filtered = detailOrders.slice();
-
-  if (sampleStatus.value === 'late') {
-    filtered = filtered.filter(function(o) { return Number(o.is_late) === 1; });
-  } else if (sampleStatus.value === 'on_time') {
-    filtered = filtered.filter(function(o) { return Number(o.is_late) !== 1; });
-  }
-
-  const limit = Number(sampleLimit.value || 40);
-  return filtered.slice(0, limit);
-}
-
-async function loadOrderSample(fromState, toState) {
-  currentView = 'detail';
-  detailFlow = { fromState: fromState, toState: toState };
-
-  showLoading('Đang lấy mẫu đơn hàng…');
-
-  try {
-    const q = buildQuery(currentFilter);
-    const data = await fetchJson(
-      '/api/map/sample?from=' + encodeURIComponent(fromState)
-      + '&to=' + encodeURIComponent(toState)
-      + '&limit=100'
-      + (q ? '&' + q.slice(1) : '')
-    );
-
-    detailOrders = data.orders || [];
-    detailAvailable.textContent = fmt(data.n_available || 0) + ' đơn trong flow';
-    hideLoading();
-    renderDetailView();
-  } catch (err) {
-    hideLoading();
-    alert('Không tải được drill-down: ' + err.message);
-  }
-}
-
-function renderDetailView() {
-  stopAnimations();
-  clearAllLayers();
-
-  document.getElementById('globalFilterBox').style.display = 'none';
-  compareSection.classList.add('hidden');
-  trendSection.classList.add('hidden');
-  detailSection.classList.remove('hidden');
-
-  const fromState = detailFlow.fromState;
-  const toState = detailFlow.toState;
-  const orders = filterDetailOrders();
-
-  panelTitle.textContent = String(fromState) + ' → ' + String(toState);
-  panelSub.textContent = orders.length
-    + ' đơn đang hiển thị · chấm chạy xanh = đúng hẹn, đỏ = trễ · click line/chấm để xem chi tiết.';
-
-  const lateCount = orders.filter(function(o) { return Number(o.is_late) === 1; }).length;
-
-  detailStatsSection.classList.remove('hidden');
-  detailStatsSection.innerHTML =
-    '<div class="stats">'
-      + '<div class="stat-card"><div class="stat-label">Displayed</div><div class="stat-value">' + fmt(orders.length) + '</div></div>'
-      + '<div class="stat-card"><div class="stat-label">Late</div><div class="stat-value risk-high">' + fmt(lateCount) + '</div></div>'
-      + '</div>';
-
-  if (!orders.length) {
-    detailLayer.clearLayers();
-    return;
-  }
+  if (!orders.length) return;
 
   const bounds = [];
-  const daysValues = orders.map(function(o) { return Number(o.actual_delivery_days || 0); });
-  const maxDays = Math.max.apply(null, daysValues.concat([1]));
-  const minDays = Math.min.apply(null, daysValues.concat([0]));
+  const maxDays = Math.max(...orders.map(o => o.actual_delivery_days || 1));
+  const minDays = Math.min(...orders.map(o => o.actual_delivery_days || 1));
 
-  orders.forEach(function(o) {
-    const from = [Number(o.seller_lat), Number(o.seller_lng)];
-    const to = [Number(o.customer_lat), Number(o.customer_lng)];
-
-    if (!Number.isFinite(from[0]) || !Number.isFinite(from[1]) || !Number.isFinite(to[0]) || !Number.isFinite(to[1])) {
-      return;
-    }
-
+  orders.forEach(o => {
+    const from = [o.seller_lat, o.seller_lng];
+    const to = [o.customer_lat, o.customer_lng];
     bounds.push(from, to);
+    const color = o.is_late == 1 ? '#E0615A' : '#2FBFA0';
 
-    const color = Number(o.is_late) === 1 ? '#e0615a' : '#2fbfa0';
-    const line = L.polyline([from, to], {
-      color: color,
-      weight: 1.6,
-      opacity: .38,
-      lineCap: 'round',
-    });
-
+    const line = L.polyline([from, to], { color, weight: 1.5, opacity: 0.35 });
     line.bindTooltip(
-      safe(o.seller_city) + ', ' + safe(o.seller_state) + ' → '
-      + safe(o.customer_city) + ', ' + safe(o.customer_state)
-      + '<br>' + fmt(o.actual_delivery_days, 1) + ' ngày'
-      + (Number(o.is_late) === 1 ? ' · <b>TRỄ</b>' : ' · đúng hẹn'),
+      `${o.seller_city}, ${o.seller_state} → ${o.customer_city}, ${o.customer_state}`,
       { sticky: true }
     );
-
-    line.on('click', function() { showOrderDetail(o); });
+    line.on('click', () => showOrderDetail(o));
     line.addTo(detailLayer);
 
-    const days = Number(o.actual_delivery_days || minDays || 0);
+    // Chấm animation chạy dọc đường — tốc độ tỉ lệ nghịch với số ngày giao thực tế
+    // (giao nhanh -> chạy nhanh), chuẩn hoá về khoảng 2.5s (nhanh nhất) - 9s (chậm nhất).
+    const days = o.actual_delivery_days || minDays;
     const norm = maxDays > minDays ? (days - minDays) / (maxDays - minDays) : 0;
     const durationMs = 2500 + norm * 6500;
 
-    const dot = L.circleMarker(from, {
-      radius: 5,
-      color: color,
-      fillColor: color,
-      fillOpacity: .9,
-      weight: 1,
-    });
-
-    dot.bindTooltip(
-      safe(o.seller_city) + ' → ' + safe(o.customer_city)
-      + ' · ' + fmt(days, 1) + ' ngày'
-      + (Number(o.is_late) === 1 ? ' · TRỄ' : ''),
-      { sticky: true }
-    );
-
-    dot.on('click', function() { showOrderDetail(o); });
-    dot.addTo(detailLayer);
+    const dot = L.circleMarker(from, { radius: 5, color, fillColor: color, fillOpacity: 0.9, weight: 1 }).addTo(detailLayer);
+    dot.bindTooltip(`${o.seller_city} → ${o.customer_city} (${days.toFixed(1)} ngày${o.is_late == 1 ? ', TRỄ' : ''})`);
+    dot.on('click', () => showOrderDetail(o));
 
     let start = null;
     function step(ts) {
       if (!start) start = ts;
-      const t = ((ts - start) % durationMs) / durationMs;
+      let t = ((ts - start) % durationMs) / durationMs;
       const lat = from[0] + (to[0] - from[0]) * t;
       const lng = from[1] + (to[1] - from[1]) * t;
       dot.setLatLng([lat, lng]);
@@ -1615,105 +222,37 @@ function renderDetailView() {
     animHandles.push(requestAnimationFrame(step));
   });
 
-  if (bounds.length) {
-    map.fitBounds(bounds, { padding: [45, 45], maxZoom: 7.5 });
-  }
-
-  stateLayer.bringToBack();
-  labelLayer.clearLayers();
+  if (bounds.length) map.fitBounds(bounds, { padding: [40, 40] });
 }
 
 function showOrderDetail(o) {
-  const late = Number(o.is_late) === 1;
-  const lateTxt = late
-    ? '<span style="color:#e0615a">CÓ — trễ</span>'
-    : '<span style="color:#2fbfa0">Không — đúng hẹn</span>';
-
-  const html =
-    '<b>Order</b> ' + safe(String(o.order_id || '').slice(0, 18)) + '…<br>'
-    + 'Từ: ' + safe(o.seller_city) + ', ' + safe(o.seller_state) + '<br>'
-    + 'Đến: ' + safe(o.customer_city) + ', ' + safe(o.customer_state) + '<br>'
-    + 'Khoảng cách: ' + fmt(o.distance_km, 0) + ' km<br>'
-    + 'Category: ' + safe(o.product_category || 'unknown') + '<br>'
-    + 'Giá: ' + fmt(o.total_price, 2) + ' · Ship: ' + fmt(o.total_freight, 2) + '<br>'
-    + 'Thanh toán: ' + fmt(o.payment_value, 2) + '<br>'
-    + 'Đặt hàng: ' + safe(String(o.order_purchase_timestamp || '').slice(0, 10)) + '<br>'
-    + 'Giao thực tế: ' + safe(String(o.order_delivered_customer_date || '').slice(0, 10)) + '<br>'
-    + 'Ngày hẹn: ' + safe(String(o.order_estimated_delivery_date || '').slice(0, 10)) + '<br>'
-    + 'Giao trễ: ' + lateTxt + '<br>'
-    + 'Thời gian giao: ' + fmt(o.actual_delivery_days, 1) + ' ngày<br>'
-    + 'Review: ' + (o.review_score != null ? safe(o.review_score) : 'chưa có');
-
-  const midLat = (Number(o.seller_lat) + Number(o.customer_lat)) / 2;
-  const midLng = (Number(o.seller_lng) + Number(o.customer_lng)) / 2;
-
-  L.popup({ maxWidth: 330 })
-    .setLatLng([midLat, midLng])
+  const lateTxt = o.is_late == 1
+    ? `<span style="color:#E0615A">CÓ — trễ</span>`
+    : `<span style="color:#2FBFA0">Không — đúng hẹn</span>`;
+  const html = `
+    <b>Đơn hàng</b> ${o.order_id.slice(0, 16)}...<br/>
+    Từ: ${o.seller_city}, ${o.seller_state}<br/>
+    Đến: ${o.customer_city}, ${o.customer_state}<br/>
+    Khoảng cách: ${o.distance_km ? o.distance_km.toFixed(0) : '?'} km<br/>
+    Ngành hàng: ${o.product_category || 'không rõ'}<br/>
+    Giá sản phẩm: ${o.total_price} | Phí ship: ${o.total_freight}<br/>
+    Tổng thanh toán: ${o.payment_value}<br/>
+    Đặt hàng: ${(o.order_purchase_timestamp || '').slice(0, 10)}<br/>
+    Giao thực tế: ${(o.order_delivered_customer_date || '').slice(0, 10)}<br/>
+    Hẹn giao: ${(o.order_estimated_delivery_date || '').slice(0, 10)}<br/>
+    Giao trễ: ${lateTxt}<br/>
+    Số ngày giao: ${(o.actual_delivery_days || 0).toFixed(1)} ngày<br/>
+    Điểm đánh giá: ${o.review_score != null ? o.review_score : 'chưa có'}
+  `;
+  L.popup({ maxWidth: 320 })
+    .setLatLng([(o.seller_lat + o.customer_lat) / 2, (o.seller_lng + o.customer_lng) / 2])
     .setContent(html)
     .openOn(map);
 }
 
-function backToAggregate() {
-  currentView = 'aggregate';
-  renderCurrentMode();
-}
+backBtn.addEventListener('click', renderAggregateView);
 
-modeFlow.addEventListener('click', function() {
-  setActiveMode('flow');
-  renderCurrentMode();
-});
-
-modeRisk.addEventListener('click', function() {
-  setActiveMode('risk');
-  renderCurrentMode();
-});
-
-modeCompare.addEventListener('click', function() {
-  setActiveMode('compare');
-  if (!compareA || !compareB) setDefaultComparePeriods();
-  renderCompareMap();
-});
-
-document.getElementById('applyFilter').addEventListener('click', applyGlobalFilter);
-
-document.getElementById('clearFilter').addEventListener('click', function() {
-  startDate.value = '';
-  endDate.value = '';
-  currentFilter = { start_date: '', end_date: '' };
-  applyGlobalFilter();
-});
-
-document.getElementById('applyCompare').addEventListener('click', applyCompareFilter);
-sampleStatus.addEventListener('change', renderDetailView);
-sampleLimit.addEventListener('change', renderDetailView);
-backBtn.addEventListener('click', backToAggregate);
-
-(async function init() {
-  showLoading('Đang khởi tạo bản đồ…');
-
-  const results = await Promise.allSettled([
-    loadGeoJson(),
-    loadMainData(),
-  ]);
-
-  const geoResult = results[0];
-  const dataResult = results[1];
-
-  if (geoResult.status === 'rejected') {
-    console.warn('GeoJSON init lỗi; map vẫn tiếp tục:', geoResult.reason);
-  }
-
-  if (dataResult.status === 'rejected') {
-    console.error('Map data init lỗi:', dataResult.reason);
-    hideLoading();
-    panelTitle.textContent = 'Không tải được dữ liệu map';
-    panelSub.textContent = 'Server không trả về dữ liệu map hợp lệ.';
-    stats.innerHTML = '';
-    return;
-  }
-
-  hideLoading();
-})();
+loadFlowMap();
 </script>
 
 </body>
