@@ -7,253 +7,653 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
   :root {
-    --bg: #0F151E; --panel: #161F2B; --panel-2: #1C2733; --border: #263241;
-    --text: #E7EAEF; --muted: #8B96A6; --teal: #2FBFA0; --amber: #E8A23D; --red: #E0615A;
-    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --bg:#0F151E; --panel:#161F2B; --panel-2:#1C2733; --border:#263241;
+    --text:#E7EAEF; --muted:#8B96A6; --teal:#2FBFA0; --amber:#E8A23D; --red:#E0615A;
+    --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
   }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; margin: 0; }
-  body { font-family: var(--sans); background: var(--bg); color: var(--text); }
+  * { box-sizing:border-box; }
+  html, body { height:100%; margin:0; }
+  body { font-family:var(--sans); background:var(--bg); color:var(--text); display:flex; flex-direction:column; font-size:13px; }
+  header { display:flex; align-items:center; justify-content:space-between; padding:10px 18px; border-bottom:1px solid var(--border); background:var(--panel); }
+  header h1 { font-size:15px; margin:0; font-weight:700; }
+  header a { color:var(--muted); text-decoration:none; font-size:13px; }
+  header a:hover { color:var(--teal); }
+  body.embed header { display:none; }
+  .banner { background:rgba(232,162,61,.1); border-bottom:1px solid rgba(232,162,61,.3); color:var(--amber); font-size:12px; padding:6px 14px; text-align:center; }
 
-  header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--panel);
+  .app { flex:1; display:flex; min-height:0; position:relative; }
+  #panel { width:320px; flex-shrink:0; background:var(--panel); border-right:1px solid var(--border); overflow-y:auto; padding:12px 14px 20px; z-index:1100; }
+  #mapWrap { flex:1; position:relative; min-width:0; }
+  #map { position:absolute; inset:0; background:var(--bg); }
+
+  .sec { border-bottom:1px solid var(--border); padding:10px 0 12px; }
+  .sec:last-child { border-bottom:none; }
+  .sec h3 { margin:0 0 8px; font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:700; }
+  label.f { display:block; margin:7px 0 3px; color:var(--muted); font-size:12px; }
+  select, input[type=number] { width:100%; background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:7px; padding:6px 8px; font:inherit; }
+  input[type=range] { width:100%; accent-color:var(--teal); }
+  .row { display:flex; gap:8px; } .row > * { flex:1; min-width:0; }
+  .chk { display:flex; align-items:center; gap:6px; margin:5px 0; color:var(--text); cursor:pointer; }
+  .seg { display:flex; border:1px solid var(--border); border-radius:7px; overflow:hidden; margin-top:6px; }
+  .seg button { flex:1; background:var(--panel-2); color:var(--muted); border:none; padding:6px 4px; font:inherit; cursor:pointer; }
+  .seg button.on { background:var(--teal); color:#06251E; font-weight:700; }
+  button.btn { background:var(--teal); color:#06251E; border:none; font-weight:700; font-size:12.5px; padding:7px 12px; border-radius:7px; cursor:pointer; }
+  button.btn.ghost { background:var(--panel-2); color:var(--text); border:1px solid var(--border); font-weight:600; }
+  button.btn:disabled { opacity:.4; cursor:default; }
+  .muted { color:var(--muted); }
+  .hint { color:var(--muted); font-size:11.5px; line-height:1.5; margin-top:6px; }
+
+  .rank { list-style:none; margin:0; padding:0; }
+  .rank li { display:flex; align-items:center; gap:8px; padding:6px 6px; border-radius:7px; cursor:pointer; }
+  .rank li:hover { background:var(--panel-2); }
+  .rank .dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+  .rank .nm { font-weight:600; } .rank .val { margin-left:auto; text-align:right; }
+  .rank .sub { color:var(--muted); font-size:11px; }
+
+  .result { margin-top:8px; background:var(--panel-2); border:1px solid var(--border); border-radius:8px; padding:9px 11px; line-height:1.6; display:none; }
+  .result b { color:var(--teal); }
+
+  /* overlays trên bản đồ */
+  .ov { position:absolute; z-index:1000; background:var(--panel); border:1px solid var(--border); border-radius:10px; box-shadow:0 4px 16px rgba(0,0,0,.4); }
+  #info { top:12px; left:12px; padding:10px 12px; max-width:260px; font-size:12.5px; line-height:1.55; display:none; }
+  #info .t { font-weight:700; margin-bottom:3px; } #info .k { color:var(--muted); }
+  #info .spark-lab { color:var(--muted); font-size:11px; }
+  #legend { bottom:22px; right:12px; padding:8px 12px; font-size:11.5px; min-width:170px; }
+  #legend .bar { height:9px; border-radius:5px; margin:5px 0 3px; }
+  #legend .lab { display:flex; justify-content:space-between; color:var(--muted); }
+  #detailBar { top:12px; left:50%; transform:translateX(-50%); padding:6px 8px; display:none; gap:6px; align-items:center; white-space:nowrap; }
+  #detailBar select { width:auto; padding:5px 6px; }
+  #loadingMsg { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:var(--muted); z-index:999; text-align:center; max-width:80%; }
+  #panelToggle { display:none; position:absolute; z-index:1200; top:10px; left:10px; }
+  .leaflet-popup-content-wrapper,.leaflet-popup-tip { background:var(--panel-2); color:var(--text); }
+  .leaflet-popup-content { font-size:12.5px; line-height:1.6; } .leaflet-popup-content b { color:var(--teal); }
+  .leaflet-tooltip { background:var(--panel-2); color:var(--text); border:1px solid var(--border); font-size:12px; }
+  .tiles-dark { filter: invert(1) hue-rotate(180deg) brightness(.82) contrast(.9) saturate(.55); }
+  .leaflet-control-layers, .leaflet-bar a { background:var(--panel); color:var(--text); border-color:var(--border); }
+
+  @media (max-width:760px) {
+    #panel { position:absolute; top:0; bottom:0; left:0; width:min(88vw,340px); transform:translateX(-100%); transition:transform .2s; box-shadow:4px 0 16px rgba(0,0,0,.5); }
+    #panel.open { transform:none; }
+    #panelToggle { display:block; }
+    #info { top:52px; max-width:70vw; }
+    #detailBar { top:52px; max-width:92vw; flex-wrap:wrap; white-space:normal; justify-content:center; }
+    #legend { bottom:34px; right:8px; }
   }
-  header h1 { font-size: 16px; margin: 0; font-weight: 700; }
-  header a { color: var(--muted); text-decoration: none; font-size: 13px; }
-  header a:hover { color: var(--teal); }
-
-  .banner {
-    background: rgba(232, 162, 61, 0.1); border-bottom: 1px solid rgba(232, 162, 61, 0.3);
-    color: var(--amber); font-size: 12.5px; padding: 8px 20px; text-align: center;
-  }
-
-  #map { height: calc(100vh - 92px); width: 100%; background: var(--bg); }
-
-  .controls {
-    position: absolute; top: 110px; left: 16px; z-index: 1000;
-    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
-    padding: 12px 14px; font-size: 13px; max-width: 260px; box-shadow: 0 4px 16px rgba(0,0,0,.4);
-  }
-  .controls .title { font-weight: 700; margin-bottom: 6px; }
-  .controls .sub { color: var(--muted); font-size: 12px; margin-bottom: 10px; line-height: 1.5; }
-  .controls button {
-    background: var(--teal); color: #06251E; border: none; font-weight: 600; font-size: 12.5px;
-    padding: 7px 12px; border-radius: 7px; cursor: pointer; width: 100%;
-  }
-  .controls button:disabled { opacity: .4; cursor: default; }
-  .controls .stat { display: flex; justify-content: space-between; margin: 3px 0; color: var(--muted); }
-  .controls .stat b { color: var(--text); }
-
-  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--panel-2); color: var(--text); }
-  .leaflet-popup-content { font-size: 12.5px; line-height: 1.6; }
-  .leaflet-popup-content b { color: var(--teal); }
-  .leaflet-tooltip { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); font-size: 12px; }
-
-  .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); color: var(--muted); z-index: 999; }
 </style>
 </head>
-<body>
+<body data-carto-key="{{ carto_key }}">
 
 <header>
   <h1>🗺️ Bản đồ luồng đơn hàng — Olist</h1>
   <a href="/">← Quay lại chat</a>
 </header>
-<div class="banner">
-  Mô phỏng minh hoạ dựa trên toạ độ trung bình theo khu vực (zip code) — không phải vị trí GPS thời gian thực của đơn hàng.
-</div>
+<div class="banner">Mô phỏng minh hoạ dựa trên toạ độ trung bình theo khu vực (zip code) — không phải GPS thời gian thực. “Rủi ro dự đoán” là kết quả XGBoost cho <b>đơn điển hình</b> của từng luồng.</div>
 
-<div style="position:relative;">
-  <div id="map"></div>
-  <div class="loading" id="loadingMsg">Đang tải dữ liệu luồng đơn hàng…</div>
+<div class="app">
+  <aside id="panel">
+    <div class="sec">
+      <h3>Hiển thị</h3>
+      <label class="f" for="mMetric">Chỉ số tô màu</label>
+      <select id="mMetric">
+        <option value="late">Tỉ lệ trễ lịch sử (%)</option>
+        <option value="pred">Rủi ro dự đoán — XGBoost (%)</option>
+        <option value="days">Thời gian giao trung bình (ngày)</option>
+        <option value="orders">Số đơn hàng</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="chkChoro" checked /> Vùng theo bang (choropleth)</label>
+      <div class="seg" id="grpSeg" title="Choropleth gộp theo bang nào">
+        <button data-g="dest" class="on">Bang nhận hàng</button>
+        <button data-g="origin">Bang gửi hàng</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="chkFlows" checked /> Đường luồng giữa các bang</label>
+      <div class="hint" id="selHint"></div>
+    </div>
 
-  <div class="controls" id="controls" style="display:none;">
-    <div class="title" id="ctrlTitle">Luồng theo bang (toàn quốc)</div>
-    <div class="sub" id="ctrlSub">Hover để xem nhanh, bấm vào 1 luồng để xem từng đơn hàng mẫu di chuyển.</div>
-    <div id="ctrlStats"></div>
-    <button id="backBtn" style="display:none; margin-top:8px;">← Quay lại tổng thể</button>
+    <div class="sec">
+      <h3>Bộ lọc</h3>
+      <div class="row">
+        <div><label class="f" for="fFrom">Từ tháng</label><select id="fFrom"></select></div>
+        <div><label class="f" for="fTo">Đến tháng</label><select id="fTo"></select></div>
+      </div>
+      <label class="f" for="fCat">Ngành hàng</label>
+      <select id="fCat"><option value="">Tất cả ngành hàng</option></select>
+      <label class="f" for="fMin">Số đơn tối thiểu mỗi luồng: <b id="fMinVal">5</b></label>
+      <input type="range" id="fMin" min="1" max="200" value="5" />
+      <div style="margin-top:8px"><button class="btn ghost" id="fReset">Đặt lại bộ lọc</button></div>
+    </div>
+
+    <div class="sec">
+      <h3>Top 10 luồng nổi bật</h3>
+      <ul class="rank" id="rank"></ul>
+      <div class="hint">Xếp theo chỉ số đang chọn; chỉ tính luồng có ≥ 30 đơn (và ≥ ngưỡng ở trên) để tránh nhiễu. Bấm để xem chi tiết.</div>
+    </div>
+
+    <div class="sec">
+      <h3>🔮 Dự đoán đơn mới</h3>
+      <div class="row">
+        <div><label class="f" for="pFrom">Bang seller</label><select id="pFrom"></select></div>
+        <div><label class="f" for="pTo">Bang khách</label><select id="pTo"></select></div>
+      </div>
+      <label class="f" for="pCat">Ngành hàng (tuỳ chọn)</label>
+      <select id="pCat"><option value="">— mặc định —</option></select>
+      <div class="row">
+        <div><label class="f" for="pPrice">Giá hàng</label><input type="number" id="pPrice" min="0" placeholder="vd 150" /></div>
+        <div><label class="f" for="pShip">Phí ship</label><input type="number" id="pShip" min="0" placeholder="vd 30" /></div>
+        <div><label class="f" for="pW">Cân nặng (g)</label><input type="number" id="pW" min="0" placeholder="vd 1000" /></div>
+      </div>
+      <div class="row" style="margin-top:9px">
+        <button class="btn" id="pGo">Dự đoán & vẽ tuyến</button>
+        <button class="btn ghost" id="pClear">Xoá</button>
+      </div>
+      <div class="result" id="pResult"></div>
+      <div class="hint">Trường để trống sẽ dùng giá trị điển hình của luồng đó.</div>
+    </div>
+  </aside>
+
+  <div id="mapWrap">
+    <button class="btn ghost" id="panelToggle">☰ Bộ lọc</button>
+    <div id="map"></div>
+    <div id="loadingMsg">Đang tải dữ liệu luồng đơn hàng…</div>
+    <div class="ov" id="info"></div>
+    <div class="ov" id="detailBar">
+      <button class="btn ghost" id="dBack">← Tổng thể</button>
+      <button class="btn ghost" id="dPlay">⏸ Tạm dừng</button>
+      <select id="dSpeed" title="Tốc độ animation"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+      <button class="btn" id="dAsk">💬 Hỏi agent</button>
+    </div>
+    <div class="ov" id="legend"></div>
   </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
-const map = L.map('map', { zoomControl: true }).setView([-14.5, -51.9], 4.3);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap', opacity: 0.55,
-}).addTo(map);
+/* ============================ Tiện ích ============================ */
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const EMBED = params.get('embed') === '1';
+if (EMBED) document.body.classList.add('embed');
 
-const controls = document.getElementById('controls');
-const ctrlTitle = document.getElementById('ctrlTitle');
-const ctrlSub = document.getElementById('ctrlSub');
-const ctrlStats = document.getElementById('ctrlStats');
-const backBtn = document.getElementById('backBtn');
-const loadingMsg = document.getElementById('loadingMsg');
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtN = n => Number(n).toLocaleString('vi-VN');
+const clamp01 = x => Math.max(0, Math.min(1, x));
 
-let flowLayer = L.layerGroup().addTo(map);
-let detailLayer = L.layerGroup().addTo(map);
-let animHandles = [];
-let allFlows = [];
-
-function colorForLateRate(pct) {
-  // 0% -> xanh teal, >=20% -> đỏ, nội suy tuyến tính qua vàng
-  const t = Math.max(0, Math.min(1, pct / 20));
-  const r = Math.round(47 + t * (224 - 47));
-  const g = Math.round(191 + t * (97 - 191));
-  const b = Math.round(160 + t * (90 - 160));
-  return `rgb(${r},${g},${b})`;
+async function getJSON(url, opts) {
+  const res = await fetch(url, opts);
+  if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
+  return res.json();
+}
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+function quantile(arr, q) {
+  const v = arr.filter(x => x != null && !isNaN(x)).sort((a, b) => a - b);
+  if (!v.length) return 0;
+  const i = (v.length - 1) * q, lo = Math.floor(i), hi = Math.ceil(i);
+  return v[lo] + (v[hi] - v[lo]) * (i - lo);
 }
 
-function stopAnimations() {
-  animHandles.forEach(h => cancelAnimationFrame(h));
-  animHandles = [];
+/* ============================ Bản đồ nền ============================ */
+const map = L.map('map', { zoomControl: false }).setView([-14.5, -51.9], 4.3);
+L.control.zoom({ position: 'bottomleft' }).addTo(map);
+// Nền bản đồ. CARTO bắt buộc API key miễn phí (carto.com/basemaps/apikey) — thiếu key thì tile bị đóng dấu
+// "API KEY REQUIRED". Vì vậy: có CARTO_API_KEY → dùng CARTO; không có → tự dùng OSM đảo màu (không cần key).
+const CARTO_KEY = (document.body.dataset.cartoKey || '').trim();
+const OSM_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const CARTO_ATTR = OSM_ATTR + ', &copy; <a href="https://carto.com/attributions">CARTO</a>';
+const cartoUrl = style => `https://basemaps.cartocdn.com/rastertiles/${style}/{z}/{x}/{y}.png?key=${encodeURIComponent(CARTO_KEY)}`;
+const osmDark = L.tileLayer(OSM_URL, { maxZoom: 18, attribution: OSM_ATTR, className: 'tiles-dark' });
+const osmLight = L.tileLayer(OSM_URL, { maxZoom: 18, attribution: OSM_ATTR });
+const baseLayers = {};
+let defaultBase = osmDark;
+if (CARTO_KEY) {
+  const cartoDark = L.tileLayer(cartoUrl('dark_all'), { maxZoom: 18, attribution: CARTO_ATTR });
+  const cartoLight = L.tileLayer(cartoUrl('light_all'), { maxZoom: 18, attribution: CARTO_ATTR });
+  baseLayers['Nền tối (CARTO)'] = cartoDark;
+  baseLayers['Nền sáng (CARTO)'] = cartoLight;
+  defaultBase = cartoDark;
+}
+baseLayers['Nền tối (OSM đảo màu)'] = osmDark;
+baseLayers['OpenStreetMap (sáng)'] = osmLight;
+defaultBase.addTo(map);
+L.control.layers(baseLayers, null, { position: 'topright', collapsed: true }).addTo(map);
+map.createPane('choro'); map.getPane('choro').style.zIndex = 350;
+
+let choroLayer = null;
+const flowLayer = L.layerGroup().addTo(map);
+const detailLayer = L.layerGroup().addTo(map);
+const predictLayer = L.layerGroup().addTo(map);
+
+/* ============================ Trạng thái ============================ */
+const S = {
+  metric: params.get('mode') || 'late',
+  group: 'dest',
+  showChoro: true, showFlows: true,
+  selectedState: null,
+  data: null,          // phản hồi /api/map/flows
+  geo: null,           // GeoJSON bang
+  filters: null,       // phản hồi /api/map/filters
+  detail: null,        // {from, to} khi đang ở màn hình chi tiết
+  domain: [0, 1],
+};
+if (!['late', 'pred', 'days', 'orders'].includes(S.metric)) S.metric = 'late';
+
+const METRICS = {
+  late:   { label: 'Tỉ lệ trễ lịch sử',        key: 'late_rate_pct',     unit: '%',    pal: 'risk' },
+  pred:   { label: 'Rủi ro dự đoán (XGBoost)', key: 'pred_late_pct',     unit: '%',    pal: 'risk' },
+  days:   { label: 'Ngày giao trung bình',     key: 'avg_delivery_days', unit: ' ngày', pal: 'risk' },
+  orders: { label: 'Số đơn hàng',              key: 'n_orders',          unit: ' đơn', pal: 'blue', log: true },
+};
+const PALETTES = {
+  risk: [[47,191,160], [232,162,61], [224,97,90]],   // teal → amber → red
+  blue: [[28,60,92], [47,140,200], [150,225,255]],
+};
+function palColor(pal, t) {
+  const st = PALETTES[pal], x = clamp01(t) * (st.length - 1), i = Math.min(Math.floor(x), st.length - 2), f = x - i;
+  const c = st[i].map((v, k) => Math.round(v + (st[i + 1][k] - v) * f));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+function gradientCss(pal) { return `linear-gradient(90deg, ${PALETTES[pal].map(c => `rgb(${c})`).join(',')})`; }
+
+function metricValue(rec, m = S.metric) { return rec ? rec[METRICS[m].key] : null; }
+function colorFor(v, m = S.metric) {
+  if (v == null || isNaN(v)) return null;
+  const M = METRICS[m], [lo, hi] = S.domain;
+  const t = M.log ? Math.log1p(v) / Math.log1p(hi) : (v - lo) / ((hi - lo) || 1);
+  return palColor(M.pal, t);
+}
+function fmtMetric(v, m = S.metric) {
+  if (v == null) return '—';
+  const M = METRICS[m];
+  return (m === 'orders' ? fmtN(v) : (Math.round(v * 10) / 10)) + M.unit;
+}
+function computeDomain() {
+  const M = METRICS[S.metric];
+  const statesObj = S.group === 'dest' ? S.data.states_dest : S.data.states_origin;
+  const stateKey = S.metric === 'late' ? 'late_rate_pct' : S.metric === 'pred' ? 'pred_late_pct' : S.metric === 'days' ? 'avg_delivery_days' : 'n_orders';
+  const vals = [...S.data.flows.map(f => f[M.key]), ...Object.values(statesObj || {}).map(s => s[stateKey])];
+  if (S.metric === 'orders') { S.domain = [0, Math.max(...vals, 1)]; return; }
+  let lo = S.metric === 'days' ? quantile(vals, 0.05) : 0;
+  let hi = quantile(vals, 0.95);
+  if (S.metric === 'late' || S.metric === 'pred') hi = Math.max(hi, 5);
+  if (hi <= lo) hi = lo + 1;
+  S.domain = [Math.floor(lo), Math.ceil(hi)];
 }
 
-// ========== Màn hình tổng thể: luồng gộp theo bang ==========
-async function loadFlowMap() {
-  loadingMsg.style.display = 'block';
-  const res = await fetch('/api/map/flows');
-  const data = await res.json();
-  allFlows = data.flows || [];
-  loadingMsg.style.display = 'none';
-  controls.style.display = 'block';
-  renderAggregateView();
+/* ============================ Thông tin / legend ============================ */
+const infoEl = $('info');
+function showInfo(html) { infoEl.innerHTML = html; infoEl.style.display = 'block'; }
+function hideInfo() { if (!S.detail) infoEl.style.display = 'none'; }
+
+function renderLegend() {
+  const el = $('legend');
+  if (S.detail) {
+    el.innerHTML = `<div><span style="color:#2FBFA0">●</span> Đúng hẹn &nbsp; <span style="color:#E0615A">●</span> Trễ</div>
+      <div class="muted" style="margin-top:3px">Tốc độ chấm ∝ 1 / số ngày giao thực tế</div>`;
+    return;
+  }
+  const M = METRICS[S.metric], [lo, hi] = S.domain;
+  const labels = S.metric === 'orders' ? ['ít', 'nhiều'] : [fmtMetric(lo), fmtMetric(hi) + '+'];
+  el.innerHTML = `<div><b>${esc(M.label)}</b></div><div class="bar" style="background:${gradientCss(M.pal)}"></div>
+    <div class="lab"><span>${labels[0]}</span><span>${labels[1]}</span></div>`;
 }
 
-function renderAggregateView() {
-  stopAnimations();
-  detailLayer.clearLayers();
+const trendCache = {};
+function filterQS() {
+  const q = new URLSearchParams();
+  const f = currentFilters();
+  if (f.start) q.set('start', f.start);
+  if (f.end) q.set('end', f.end);
+  if (f.category) q.set('category', f.category);
+  return q;
+}
+async function getTrend(from, to) {
+  const q = filterQS(); q.set('from', from); q.set('to', to);
+  const url = '/api/map/trend?' + q;
+  if (!trendCache[url]) trendCache[url] = getJSON(url).catch(() => ({ series: [] }));
+  return trendCache[url];
+}
+function sparkline(series, w = 180, h = 38) {
+  if (!series || series.length < 2) return '<span class="muted">Không đủ dữ liệu theo tháng</span>';
+  const vals = series.map(s => s.late_rate_pct), max = Math.max(...vals, 1);
+  const pts = vals.map((v, i) => `${(i / (vals.length - 1)) * (w - 4) + 2},${h - 3 - (v / max) * (h - 6)}`).join(' ');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-label="Late rate theo tháng"><polyline points="${pts}" fill="none" stroke="#2FBFA0" stroke-width="1.6"/></svg>
+    <div class="spark-lab">Late rate theo tháng: ${esc(series[0].month)} → ${esc(series[series.length - 1].month)} (cao nhất ${max}%)</div>`;
+}
+function flowInfoHtml(f) {
+  return `<div class="t">${esc(f.from_state)} → ${esc(f.to_state)}</div>
+    <div><span class="k">Số đơn:</span> ${fmtN(f.n_orders)}</div>
+    <div><span class="k">Trễ lịch sử:</span> ${f.late_rate_pct}%${f.pred_late_pct != null ? ` · <span class="k">Dự đoán:</span> ${f.pred_late_pct}%` : ''}</div>
+    <div><span class="k">Giao TB:</span> ${f.avg_delivery_days} ngày · <span class="k">Cách:</span> ${Math.round(f.avg_distance_km)} km</div>`;
+}
+let hoverToken = 0;
+async function showFlowHover(f) {
+  if (S.detail) return;
+  const token = ++hoverToken;
+  showInfo(flowInfoHtml(f) + '<div class="spark" style="margin-top:6px"><span class="muted">Đang tải xu hướng…</span></div>');
+  const tr = await getTrend(f.from_state, f.to_state);
+  if (token !== hoverToken || S.detail) return;
+  showInfo(flowInfoHtml(f) + `<div class="spark" style="margin-top:6px">${sparkline(tr.series)}</div>`);
+}
+function stateInfoHtml(code, name) {
+  const src = S.group === 'dest' ? S.data.states_dest : S.data.states_origin;
+  const s = src[code];
+  const role = S.group === 'dest' ? 'nhận hàng' : 'gửi hàng';
+  if (!s) return `<div class="t">${esc(name)} (${esc(code)})</div><div class="muted">Không có đơn nào (theo bộ lọc hiện tại)</div>`;
+  return `<div class="t">${esc(name)} (${esc(code)}) — ${role}</div>
+    <div><span class="k">Số đơn:</span> ${fmtN(s.n_orders)}</div>
+    <div><span class="k">Trễ lịch sử:</span> ${s.late_rate_pct}%${s.pred_late_pct != null ? ` · <span class="k">Dự đoán:</span> ${s.pred_late_pct}%` : ''}</div>
+    <div><span class="k">Giao TB:</span> ${s.avg_delivery_days} ngày</div>
+    <div class="muted" style="margin-top:4px">Bấm để lọc các luồng của bang này</div>`;
+}
+
+/* ============================ Hình học: cung cong ============================ */
+function arcPoints(a, b, n = 28, bend = 0.18) {
+  const [y1, x1] = a, [y2, x2] = b;
+  if (Math.abs(y1 - y2) + Math.abs(x1 - x2) < 1e-6) return [a, b];
+  const cy = (y1 + y2) / 2 - (x2 - x1) * bend, cx = (x1 + x2) / 2 + (y2 - y1) * bend;
+  const pts = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, u = 1 - t;
+    pts.push([u * u * y1 + 2 * u * t * cy + t * t * y2, u * u * x1 + 2 * u * t * cx + t * t * x2]);
+  }
+  return pts;
+}
+
+/* ============================ Choropleth ============================ */
+function renderChoropleth() {
+  if (choroLayer) { map.removeLayer(choroLayer); choroLayer = null; }
+  if (!S.showChoro || !S.geo || !S.data) return;
+  const src = S.group === 'dest' ? S.data.states_dest : S.data.states_origin;
+  const key = { late: 'late_rate_pct', pred: 'pred_late_pct', days: 'avg_delivery_days', orders: 'n_orders' }[S.metric];
+  choroLayer = L.geoJSON(S.geo, {
+    pane: 'choro',
+    style: feat => {
+      const code = feat.properties.sigla, rec = src[code];
+      const col = rec ? colorFor(rec[key]) : null;
+      const sel = S.selectedState === code;
+      return { color: sel ? '#FFFFFF' : '#3a4a5e', weight: sel ? 2.2 : 0.8, fillColor: col || '#1a2330', fillOpacity: col ? 0.5 : 0.25 };
+    },
+    onEachFeature: (feat, layer) => {
+      const code = feat.properties.sigla, name = feat.properties.name;
+      layer.on('mouseover', () => { if (S.detail) return; layer.setStyle({ weight: 2, color: '#9fb3c8' }); showInfo(stateInfoHtml(code, name)); });
+      layer.on('mouseout', () => { if (S.detail) return; choroLayer.resetStyle(layer); hideInfo(); });
+      layer.on('click', () => { if (S.detail) return; S.selectedState = S.selectedState === code ? null : code; refreshView(); });
+    },
+  }).addTo(map);
+}
+
+/* ============================ Luồng tổng thể ============================ */
+function visibleFlows() {
+  let fl = S.data.flows;
+  if (S.selectedState) fl = fl.filter(f => (S.group === 'dest' ? f.to_state : f.from_state) === S.selectedState);
+  return fl;
+}
+function renderFlows() {
   flowLayer.clearLayers();
-  backBtn.style.display = 'none';
-  ctrlTitle.textContent = 'Luồng theo bang (toàn quốc)';
-  ctrlSub.textContent = 'Hover để xem nhanh, bấm vào 1 luồng để xem từng đơn hàng mẫu di chuyển.';
-  ctrlStats.innerHTML = `<div class="stat">Tổng số luồng<b>${allFlows.length}</b></div>`;
-
-  const maxN = Math.max(...allFlows.map(f => f.n_orders));
-
-  allFlows.forEach(f => {
-    const weight = 1 + 7 * Math.log1p(f.n_orders) / Math.log1p(maxN);
-    const color = colorForLateRate(f.late_rate_pct);
+  if (!S.showFlows || !S.data) return;
+  const fl = visibleFlows();
+  if (!fl.length) return;
+  const maxN = Math.max(...S.data.flows.map(f => f.n_orders));
+  fl.forEach(f => {
+    const v = metricValue(f);
+    const color = colorFor(v) || '#8B96A6';
+    const w = 1 + 7 * Math.log1p(f.n_orders) / Math.log1p(maxN);
     let layer;
-
     if (f.from_state === f.to_state) {
-      layer = L.circleMarker([f.from_lat, f.from_lng], {
-        radius: 4 + 10 * Math.log1p(f.n_orders) / Math.log1p(maxN),
-        color, weight: 1, fillColor: color, fillOpacity: 0.35,
-      });
+      layer = L.circleMarker([f.from_lat, f.from_lng], { radius: 4 + 10 * Math.log1p(f.n_orders) / Math.log1p(maxN), color, weight: 1, fillColor: color, fillOpacity: 0.4 });
     } else {
-      layer = L.polyline([[f.from_lat, f.from_lng], [f.to_lat, f.to_lng]], {
-        color, weight, opacity: 0.55,
-      });
+      layer = L.polyline(arcPoints([f.from_lat, f.from_lng], [f.to_lat, f.to_lng]), { color, weight: w, opacity: 0.6, lineCap: 'round' });
     }
-
-    layer.bindTooltip(
-      `${f.from_state} → ${f.to_state}: ${f.n_orders.toLocaleString()} đơn, ${f.late_rate_pct}% trễ`,
-      { sticky: true }
-    );
+    layer.on('mouseover', function () { this.setStyle({ opacity: 1, fillOpacity: 0.7 }); if (this.bringToFront) this.bringToFront(); showFlowHover(f); });
+    layer.on('mouseout', function () { this.setStyle({ opacity: 0.6, fillOpacity: 0.4 }); hoverToken++; hideInfo(); });
     layer.on('click', () => loadOrderSample(f.from_state, f.to_state));
-    layer.on('mouseover', function () { this.setStyle ? this.setStyle({ opacity: 1, fillOpacity: 0.6 }) : null; });
-    layer.on('mouseout', function () { this.setStyle ? this.setStyle({ opacity: 0.55, fillOpacity: 0.35 }) : null; });
     layer.addTo(flowLayer);
   });
 }
 
-// ========== Màn hình chi tiết: animation từng đơn trong 1 cặp bang ==========
-async function loadOrderSample(fromState, toState) {
-  loadingMsg.style.display = 'block';
-  const res = await fetch(`/api/map/sample?from=${fromState}&to=${toState}&limit=40`);
-  const data = await res.json();
-  loadingMsg.style.display = 'none';
-  renderDetailView(fromState, toState, data.orders || []);
+function renderRank() {
+  const M = METRICS[S.metric];
+  const minN = Math.max(30, +$('fMin').value);
+  let fl = visibleFlows().filter(f => f.n_orders >= minN && metricValue(f) != null);
+  fl = fl.sort((a, b) => metricValue(b) - metricValue(a)).slice(0, 10);
+  $('rank').innerHTML = fl.length ? fl.map(f => `
+    <li data-from="${esc(f.from_state)}" data-to="${esc(f.to_state)}">
+      <span class="dot" style="background:${colorFor(metricValue(f)) || '#888'}"></span>
+      <span><span class="nm">${esc(f.from_state)} → ${esc(f.to_state)}</span><br><span class="sub">${fmtN(f.n_orders)} đơn · ${f.avg_delivery_days} ngày</span></span>
+      <span class="val"><b>${fmtMetric(metricValue(f))}</b></span>
+    </li>`).join('') : '<li class="muted" style="cursor:default">Không có luồng đủ điều kiện</li>';
 }
 
-function renderDetailView(fromState, toState, orders) {
+function renderHint() {
+  $('selHint').innerHTML = S.selectedState
+    ? `Đang lọc luồng của bang <b>${esc(S.selectedState)}</b> (${S.group === 'dest' ? 'nhận hàng' : 'gửi hàng'}). <a href="#" id="clrSel" style="color:var(--teal)">Bỏ lọc</a>`
+    : 'Bấm vào một bang để chỉ xem các luồng của bang đó.';
+  const c = $('clrSel'); if (c) c.onclick = e => { e.preventDefault(); S.selectedState = null; refreshView(); };
+}
+
+function refreshView() {
+  if (!S.data) return;
+  computeDomain();
+  renderChoropleth();
+  if (!S.detail) renderFlows();
+  renderRank(); renderHint(); renderLegend();
+}
+
+/* ============================ Bộ lọc ============================ */
+function currentFilters() {
+  return { start: $('fFrom').value, end: $('fTo').value, category: $('fCat').value };
+}
+function fillSelect(sel, items, keepFirst = true) {
+  const first = keepFirst ? sel.options[0]?.outerHTML || '' : '';
+  sel.innerHTML = first + items.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('');
+}
+function populateFilters() {
+  const F = S.filters;
+  const months = F.months.map(m => [m, m]);
+  fillSelect($('fFrom'), months, false); fillSelect($('fTo'), months, false);
+  $('fFrom').value = F.months[0]; $('fTo').value = F.months[F.months.length - 1];
+  const cats = F.categories.map(c => [c.name ?? c.c, `${c.name ?? c.c} (${fmtN(c.n)})`]);
+  fillSelect($('fCat'), cats); fillSelect($('pCat'), cats);
+  const sts = F.states.map(s => [s, s]);
+  fillSelect($('pFrom'), sts, false); fillSelect($('pTo'), sts, false);
+  $('pFrom').value = F.states.includes('SP') ? 'SP' : F.states[0];
+  $('pTo').value = F.states.includes('RJ') ? 'RJ' : F.states[1];
+}
+async function reloadFlows() {
+  $('loadingMsg').textContent = 'Đang tải dữ liệu luồng đơn hàng…';
+  $('loadingMsg').style.display = 'block';
+  const q = filterQS(); q.set('min_orders', $('fMin').value);
+  try {
+    S.data = await getJSON('/api/map/flows?' + q);
+  } catch (e) {
+    $('loadingMsg').textContent = 'Không tải được dữ liệu bản đồ. Hãy thử tải lại trang.';
+    throw e;
+  }
+  $('loadingMsg').style.display = 'none';
+  const predOpt = $('mMetric').querySelector('option[value="pred"]');
+  predOpt.disabled = !S.data.has_prediction;
+  if (!S.data.has_prediction && S.metric === 'pred') { S.metric = 'late'; $('mMetric').value = 'late'; }
+  refreshView();
+  if (S.detail) loadOrderSample(S.detail.from, S.detail.to, true);
+}
+const reloadFlowsDebounced = debounce(() => reloadFlows().catch(console.error), 300);
+
+/* ============================ Chi tiết 1 luồng + animation ============================ */
+const anim = { dots: [], playing: true, speed: 1, last: null, raf: null, clock: 0 };
+function animLoop(ts) {
+  if (anim.last == null) anim.last = ts;
+  const dt = Math.min(ts - anim.last, 100); anim.last = ts;
+  if (anim.playing) anim.clock += dt * anim.speed;
+  for (const d of anim.dots) {
+    const t = ((anim.clock + d.phase) % d.dur) / d.dur, idx = t * (d.pts.length - 1);
+    const i = Math.floor(idx), f = idx - i, a = d.pts[i], b = d.pts[Math.min(i + 1, d.pts.length - 1)];
+    d.m.setLatLng([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]);
+  }
+  anim.raf = requestAnimationFrame(animLoop);
+}
+function stopAnimations() { if (anim.raf) cancelAnimationFrame(anim.raf); anim.raf = null; anim.dots = []; anim.last = null; }
+
+async function loadOrderSample(from, to, keepView = false) {
+  $('loadingMsg').textContent = 'Đang tải đơn hàng mẫu…'; $('loadingMsg').style.display = 'block';
+  const q = filterQS(); q.set('from', from); q.set('to', to); q.set('limit', 40);
+  let data;
+  try { data = await getJSON('/api/map/sample?' + q); }
+  catch (e) { $('loadingMsg').textContent = 'Không tải được đơn hàng mẫu.'; return; }
+  $('loadingMsg').style.display = 'none';
+  renderDetailView(from, to, data, keepView);
+}
+
+async function renderDetailView(from, to, data, keepView) {
   stopAnimations();
-  flowLayer.clearLayers();
-  detailLayer.clearLayers();
-  backBtn.style.display = 'block';
+  flowLayer.clearLayers(); detailLayer.clearLayers();
+  S.detail = { from, to };
+  $('detailBar').style.display = 'flex';
+  renderLegend();
 
-  const lateCount = orders.filter(o => o.is_late == 1).length;
-  ctrlTitle.textContent = `${fromState} → ${toState}`;
-  ctrlSub.textContent = `${orders.length} đơn hàng mẫu — chấm xanh = đúng hẹn, chấm đỏ = trễ. Tốc độ chạy tỉ lệ với thời gian giao thực tế. Hover/bấm vào đường nối để xem chi tiết.`;
-  ctrlStats.innerHTML = `
-    <div class="stat">Đơn mẫu<b>${orders.length}</b></div>
-    <div class="stat">Trong đó trễ<b>${lateCount}</b></div>
-  `;
+  const orders = data.orders || [];
+  const lane = S.data.flows.find(f => f.from_state === from && f.to_state === to);
+  const realRate = data.n_total ? (100 * data.n_late / data.n_total).toFixed(1) : '—';
+  const head = `<div class="t">${esc(from)} → ${esc(to)}</div>
+    <div><span class="k">Tổng đơn của luồng:</span> ${fmtN(data.n_total || 0)} (trễ ${fmtN(data.n_late || 0)} = ${realRate}%)</div>
+    <div><span class="k">Đang vẽ:</span> ${orders.length} đơn mẫu (ưu tiên có cả đơn trễ)</div>
+    ${lane && lane.pred_late_pct != null ? `<div><span class="k">Dự đoán đơn điển hình:</span> ${lane.pred_late_pct}% · ${lane.pred_days} ngày</div>` : ''}`;
+  showInfo(head + '<div class="spark" style="margin-top:6px"><span class="muted">Đang tải xu hướng…</span></div>');
+  getTrend(from, to).then(tr => { if (S.detail && S.detail.from === from && S.detail.to === to) showInfo(head + `<div class="spark" style="margin-top:6px">${sparkline(tr.series)}</div>`); });
 
-  if (!orders.length) return;
-
+  if (!orders.length) { return; }
   const bounds = [];
-  const maxDays = Math.max(...orders.map(o => o.actual_delivery_days || 1));
-  const minDays = Math.min(...orders.map(o => o.actual_delivery_days || 1));
-
+  const days = orders.map(o => o.actual_delivery_days || 1), maxD = Math.max(...days), minD = Math.min(...days);
   orders.forEach(o => {
-    const from = [o.seller_lat, o.seller_lng];
-    const to = [o.customer_lat, o.customer_lng];
-    bounds.push(from, to);
-    const color = o.is_late == 1 ? '#E0615A' : '#2FBFA0';
-
-    const line = L.polyline([from, to], { color, weight: 1.5, opacity: 0.35 });
-    line.bindTooltip(
-      `${o.seller_city}, ${o.seller_state} → ${o.customer_city}, ${o.customer_state}`,
-      { sticky: true }
-    );
+    const a = [o.seller_lat, o.seller_lng], b = [o.customer_lat, o.customer_lng];
+    bounds.push(a, b);
+    const late = o.is_late == 1, color = late ? '#E0615A' : '#2FBFA0';
+    const pts = arcPoints(a, b, 40, 0.14);
+    const line = L.polyline(pts, { color, weight: 1.5, opacity: 0.35 }).addTo(detailLayer);
+    line.bindTooltip(`${o.seller_city}, ${o.seller_state} → ${o.customer_city}, ${o.customer_state}`, { sticky: true });
     line.on('click', () => showOrderDetail(o));
-    line.addTo(detailLayer);
-
-    // Chấm animation chạy dọc đường — tốc độ tỉ lệ nghịch với số ngày giao thực tế
-    // (giao nhanh -> chạy nhanh), chuẩn hoá về khoảng 2.5s (nhanh nhất) - 9s (chậm nhất).
-    const days = o.actual_delivery_days || minDays;
-    const norm = maxDays > minDays ? (days - minDays) / (maxDays - minDays) : 0;
-    const durationMs = 2500 + norm * 6500;
-
-    const dot = L.circleMarker(from, { radius: 5, color, fillColor: color, fillOpacity: 0.9, weight: 1 }).addTo(detailLayer);
-    dot.bindTooltip(`${o.seller_city} → ${o.customer_city} (${days.toFixed(1)} ngày${o.is_late == 1 ? ', TRỄ' : ''})`);
+    const d = o.actual_delivery_days || minD;
+    const norm = maxD > minD ? (d - minD) / (maxD - minD) : 0;
+    const dur = 2500 + norm * 6500;   // giao nhanh → chạy nhanh: 2.5s … 9s
+    const dot = L.circleMarker(a, { radius: 5, color, fillColor: color, fillOpacity: 0.9, weight: 1 }).addTo(detailLayer);
+    dot.bindTooltip(`${o.seller_city} → ${o.customer_city} (${d.toFixed(1)} ngày${late ? ', TRỄ' : ''})`);
     dot.on('click', () => showOrderDetail(o));
-
-    let start = null;
-    function step(ts) {
-      if (!start) start = ts;
-      let t = ((ts - start) % durationMs) / durationMs;
-      const lat = from[0] + (to[0] - from[0]) * t;
-      const lng = from[1] + (to[1] - from[1]) * t;
-      dot.setLatLng([lat, lng]);
-      animHandles.push(requestAnimationFrame(step));
-    }
-    animHandles.push(requestAnimationFrame(step));
+    anim.dots.push({ m: dot, pts, dur, phase: Math.random() * dur });
   });
-
-  if (bounds.length) map.fitBounds(bounds, { padding: [40, 40] });
+  anim.last = null; anim.raf = requestAnimationFrame(animLoop);
+  if (!keepView && bounds.length) map.fitBounds(bounds, { padding: [50, 50] });
 }
 
 function showOrderDetail(o) {
-  const lateTxt = o.is_late == 1
-    ? `<span style="color:#E0615A">CÓ — trễ</span>`
-    : `<span style="color:#2FBFA0">Không — đúng hẹn</span>`;
-  const html = `
-    <b>Đơn hàng</b> ${o.order_id.slice(0, 16)}...<br/>
-    Từ: ${o.seller_city}, ${o.seller_state}<br/>
-    Đến: ${o.customer_city}, ${o.customer_state}<br/>
-    Khoảng cách: ${o.distance_km ? o.distance_km.toFixed(0) : '?'} km<br/>
-    Ngành hàng: ${o.product_category || 'không rõ'}<br/>
-    Giá sản phẩm: ${o.total_price} | Phí ship: ${o.total_freight}<br/>
-    Tổng thanh toán: ${o.payment_value}<br/>
-    Đặt hàng: ${(o.order_purchase_timestamp || '').slice(0, 10)}<br/>
-    Giao thực tế: ${(o.order_delivered_customer_date || '').slice(0, 10)}<br/>
-    Hẹn giao: ${(o.order_estimated_delivery_date || '').slice(0, 10)}<br/>
-    Giao trễ: ${lateTxt}<br/>
-    Số ngày giao: ${(o.actual_delivery_days || 0).toFixed(1)} ngày<br/>
-    Điểm đánh giá: ${o.review_score != null ? o.review_score : 'chưa có'}
-  `;
-  L.popup({ maxWidth: 320 })
-    .setLatLng([(o.seller_lat + o.customer_lat) / 2, (o.seller_lng + o.customer_lng) / 2])
-    .setContent(html)
-    .openOn(map);
+  const late = o.is_late == 1
+    ? '<span style="color:#E0615A">CÓ — trễ</span>' : '<span style="color:#2FBFA0">Không — đúng hẹn</span>';
+  const day = v => esc((v || '').slice(0, 10));
+  const html = `<b>Đơn hàng</b> ${esc((o.order_id || '').slice(0, 16))}…<br/>
+    Từ: ${esc(o.seller_city)}, ${esc(o.seller_state)}<br/>Đến: ${esc(o.customer_city)}, ${esc(o.customer_state)}<br/>
+    Khoảng cách: ${o.distance_km ? Math.round(o.distance_km) : '?'} km<br/>Ngành hàng: ${esc(o.product_category || 'không rõ')}<br/>
+    Giá: ${esc(o.total_price)} | Ship: ${esc(o.total_freight)} | Thanh toán: ${esc(o.payment_value)}<br/>
+    Đặt hàng: ${day(o.order_purchase_timestamp)} · Giao: ${day(o.order_delivered_customer_date)} · Hẹn: ${day(o.order_estimated_delivery_date)}<br/>
+    Giao trễ: ${late} · ${(o.actual_delivery_days || 0).toFixed(1)} ngày<br/>Đánh giá: ${o.review_score != null ? esc(o.review_score) : 'chưa có'}`;
+  L.popup({ maxWidth: 340 }).setLatLng([(o.seller_lat + o.customer_lat) / 2, (o.seller_lng + o.customer_lng) / 2]).setContent(html).openOn(map);
 }
 
-backBtn.addEventListener('click', renderAggregateView);
+function backToOverview() {
+  stopAnimations(); detailLayer.clearLayers(); S.detail = null;
+  $('detailBar').style.display = 'none'; infoEl.style.display = 'none';
+  map.closePopup(); map.setView([-14.5, -51.9], 4.3);
+  refreshView();
+}
 
-loadFlowMap();
+/* ============================ Hỏi agent ============================ */
+function askAgent(text) {
+  if (EMBED && window.parent !== window) window.parent.postMessage({ type: 'askAgent', text }, location.origin);
+  else location.href = '/?ask=' + encodeURIComponent(text);
+}
+$('dAsk').onclick = () => {
+  if (!S.detail) return;
+  const { from, to } = S.detail;
+  const lane = S.data.flows.find(f => f.from_state === from && f.to_state === to);
+  const stat = lane ? ` (hiện ${lane.late_rate_pct}% đơn trễ, giao trung bình ${lane.avg_delivery_days} ngày)` : '';
+  askAgent(`Phân tích luồng giao hàng từ seller ở ${from} đến khách ở ${to}${stat}: nguyên nhân có thể gây trễ và nên cải thiện thế nào?`);
+};
+$('dBack').onclick = backToOverview;
+$('dPlay').onclick = () => { anim.playing = !anim.playing; $('dPlay').textContent = anim.playing ? '⏸ Tạm dừng' : '▶ Phát'; };
+$('dSpeed').onchange = e => { anim.speed = +e.target.value; };
+
+/* ============================ Dự đoán đơn mới ============================ */
+$('pGo').onclick = async () => {
+  const body = { from_state: $('pFrom').value, to_state: $('pTo').value, category: $('pCat').value || null };
+  for (const [k, id] of [['total_price', 'pPrice'], ['total_freight', 'pShip'], ['product_weight_g', 'pW']]) {
+    const v = $(id).value; if (v !== '') body[k] = +v;
+  }
+  const out = $('pResult'); out.style.display = 'block'; out.textContent = 'Đang dự đoán…';
+  let r;
+  try { r = await getJSON('/api/map/predict-route', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
+  catch (e) { out.textContent = 'Không dự đoán được (kiểm tra lại dữ liệu nhập).'; return; }
+  const thr = r.threshold_pct || 38;
+  const col = palColor('risk', r.late_probability_pct / thr);
+  out.innerHTML = `<b>${esc(r.from.state)} → ${esc(r.to.state)}</b> · ${Math.round(r.distance_km)} km<br/>
+    Xác suất trễ: <b style="color:${col}">${r.late_probability_pct}%</b> — mức <b style="color:${col}">${esc(r.risk_level)}</b> (ngưỡng cảnh báo ${thr}%)<br/>
+    Dự kiến giao: <b>${r.predicted_delivery_days}</b> ngày`;
+  predictLayer.clearLayers();
+  const a = [r.from.lat, r.from.lng], b = [r.to.lat, r.to.lng];
+  L.polyline(arcPoints(a, b), { color: col, weight: 4, opacity: 0.95, dashArray: '8 7' }).addTo(predictLayer);
+  L.circleMarker(a, { radius: 6, color: '#fff', weight: 2, fillColor: '#2FBFA0', fillOpacity: 1 }).bindTooltip(`Seller ${r.from.state}`).addTo(predictLayer);
+  L.circleMarker(b, { radius: 6, color: '#fff', weight: 2, fillColor: col, fillOpacity: 1 }).bindTooltip(`Khách ${r.to.state}`).addTo(predictLayer);
+  map.fitBounds([a, b], { padding: [80, 80], maxZoom: 6 });
+  if (window.innerWidth <= 760) $('panel').classList.remove('open');
+};
+$('pClear').onclick = () => { predictLayer.clearLayers(); $('pResult').style.display = 'none'; };
+
+/* ============================ Sự kiện giao diện ============================ */
+$('mMetric').value = S.metric;
+$('mMetric').onchange = e => { S.metric = e.target.value; refreshView(); };
+$('chkChoro').onchange = e => { S.showChoro = e.target.checked; renderChoropleth(); };
+$('chkFlows').onchange = e => { S.showFlows = e.target.checked; if (!S.detail) renderFlows(); };
+$('grpSeg').querySelectorAll('button').forEach(b => b.onclick = () => {
+  $('grpSeg').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  S.group = b.dataset.g; S.selectedState = null; refreshView();
+});
+['fFrom', 'fTo', 'fCat'].forEach(id => $(id).onchange = () => {
+  if ($('fFrom').value > $('fTo').value) { const t = $('fFrom').value; $('fFrom').value = $('fTo').value; $('fTo').value = t; }
+  reloadFlowsDebounced();
+});
+$('fMin').oninput = e => { $('fMinVal').textContent = e.target.value; reloadFlowsDebounced(); };
+$('fReset').onclick = () => {
+  const m = S.filters.months; $('fFrom').value = m[0]; $('fTo').value = m[m.length - 1]; $('fCat').value = ''; $('fMin').value = 5; $('fMinVal').textContent = '5';
+  reloadFlowsDebounced();
+};
+$('rank').addEventListener('click', e => {
+  const li = e.target.closest('li[data-from]'); if (!li) return;
+  loadOrderSample(li.dataset.from, li.dataset.to);
+  if (window.innerWidth <= 760) $('panel').classList.remove('open');
+});
+$('panelToggle').onclick = () => { $('panel').classList.toggle('open'); };
+window.addEventListener('resize', () => map.invalidateSize());
+
+/* ============================ Khởi động + điều khiển từ bên ngoài ============================ */
+const ready = (async () => {
+  const [filters, geo] = await Promise.all([
+    getJSON('/api/map/filters'),
+    getJSON('/api/map/geojson').catch(() => null),
+  ]);
+  S.filters = filters; S.geo = geo;
+  populateFilters();
+  await reloadFlows();
+})();
+
+async function focusFlow(from, to, mode) {
+  await ready;
+  if (mode && METRICS[mode] && !(mode === 'pred' && !S.data.has_prediction)) { S.metric = mode; $('mMetric').value = mode; refreshView(); }
+  if (from && to) loadOrderSample(String(from).toUpperCase(), String(to).toUpperCase());
+}
+// Chat (cha) → bản đồ (iframe): agent gọi tool show_flow_on_map thì chat gửi lệnh vào đây.
+window.addEventListener('message', e => {
+  if (e.origin !== location.origin) return;
+  const d = e.data || {};
+  if (d.type === 'showFlow') focusFlow(d.from, d.to, d.mode);
+});
+ready.then(() => {
+  if (params.get('from') && params.get('to')) focusFlow(params.get('from'), params.get('to'), params.get('mode'));
+}).catch(console.error);
 </script>
-
 </body>
 </html>
