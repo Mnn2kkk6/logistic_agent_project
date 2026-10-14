@@ -561,68 +561,368 @@ def top_risky_categories(n: int = 5, min_orders: int = 50) -> dict:
     return {"results": _df_to_json_safe_records(g)}
 
 
-def get_state_flow_map() -> dict:
-    """
-    Luồng đơn hàng GỘP theo từng cặp (bang seller → bang khách hàng) — dùng cho màn hình
-    tổng thể của trang bản đồ (/map). Mỗi luồng kèm toạ độ trung tâm 2 bang (trung bình toạ
-    độ seller/khách hàng thực tế thuộc bang đó), số đơn, tỉ lệ trễ, khoảng cách & thời gian
-    giao trung bình.
-    """
-    con = _get_duckdb_conn()
+# =============================================================================
+# BẢN ĐỒ LUỒNG ĐƠN HÀNG (/map) — dữ liệu cho giao diện bản đồ + tool cho agent
+# =============================================================================
+import math
+import re
+
+_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
+_STATE_RE = re.compile(r"^[A-Z]{2}$")
+_MAP_METRICS = ("late", "pred", "days", "orders")
+_MONTH_SQL = "substr(CAST(o.order_purchase_timestamp AS VARCHAR), 1, 7)"
+_MAP_CACHE: dict = {}  # cache kết quả tổng hợp — dữ liệu lịch sử là tĩnh nên không cần hết hạn
+_MAP_CACHE_MAX = 128
+
+
+def _cache_get(key):
+    return _MAP_CACHE.get(key)
+
+
+def _cache_put(key, value):
+    if len(_MAP_CACHE) >= _MAP_CACHE_MAX:
+        _MAP_CACHE.clear()
+    _MAP_CACHE[key] = value
+    return value
+
+
+def _clean_month(v):
+    v = (v or "").strip() if isinstance(v, str) else None
+    return v if v and _MONTH_RE.match(v) else None
+
+
+def _clean_category(v):
+    v = (v or "").strip() if isinstance(v, str) else None
+    return v or None
+
+
+def _map_where(start=None, end=None, category=None):
+    """Mệnh đề WHERE chung (alias bảng là `o`) + danh sách tham số (parameterized, an toàn)."""
+    clauses = [
+        "o.order_status = 'delivered'",
+        "o.seller_state IS NOT NULL",
+        "o.customer_state IS NOT NULL",
+    ]
+    params = []
+    start, end, category = _clean_month(start), _clean_month(end), _clean_category(category)
+    if start:
+        clauses.append(f"{_MONTH_SQL} >= ?")
+        params.append(start)
+    if end:
+        clauses.append(f"{_MONTH_SQL} <= ?")
+        params.append(end)
+    if category:
+        clauses.append("o.product_category_name_english = ?")
+        params.append(category)
+    return " AND ".join(clauses), params
+
+
+@lru_cache(maxsize=1)
+def _state_centroids() -> dict:
+    """Toạ độ trung tâm mỗi bang = trung bình toạ độ seller/khách thực tế thuộc bang đó."""
+    con = _get_duckdb_conn().cursor()  # cursor riêng: an toàn khi nhiều request/luồng cùng truy vấn
     df = con.execute("""
-        WITH state_centroid AS (
-            SELECT state, AVG(lat) AS lat, AVG(lng) AS lng FROM (
-                SELECT seller_state AS state, seller_lat AS lat, seller_lng AS lng FROM orders
-                WHERE seller_lat IS NOT NULL
-                UNION ALL
-                SELECT customer_state AS state, cust_lat AS lat, cust_lng AS lng FROM orders
-                WHERE cust_lat IS NOT NULL
-            ) GROUP BY state
-        )
-        SELECT o.seller_state AS from_state, o.customer_state AS to_state,
-               fc.lat AS from_lat, fc.lng AS from_lng, tc.lat AS to_lat, tc.lng AS to_lng,
+        SELECT state, AVG(lat) AS lat, AVG(lng) AS lng FROM (
+            SELECT seller_state AS state, seller_lat AS lat, seller_lng AS lng FROM orders
+            WHERE seller_lat IS NOT NULL
+            UNION ALL
+            SELECT customer_state AS state, cust_lat AS lat, cust_lng AS lng FROM orders
+            WHERE cust_lat IS NOT NULL
+        ) WHERE state IS NOT NULL GROUP BY state
+    """).fetchdf()
+    return {r.state: (float(r.lat), float(r.lng)) for r in df.itertuples(index=False)}
+
+
+def _haversine_km(lat1, lng1, lat2, lng2) -> float:
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 6371.0 * 2 * math.asin(math.sqrt(a))
+
+
+def _clean_num(v):
+    """None nếu NaN/None, ngược lại trả float — để không đẩy NaN vào _build_feature_row."""
+    try:
+        if v is None or (isinstance(v, float) and math.isnan(v)) or pd.isna(v):
+            return None
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _add_lane_predictions(df: pd.DataFrame, category=None) -> pd.DataFrame:
+    """Chạy XGBoost cho 'đơn điển hình' của từng luồng (distance/giá/ship/cân nặng/hạn giao
+    là trung vị-trung bình thực của luồng đó; đặc trưng lịch sử tra từ history_lookup).
+    Thêm cột pred_late_pct, pred_days. Nếu model lỗi/thiếu thì để None — bản đồ vẫn chạy."""
+    df = df.copy()
+    df["pred_late_pct"] = None
+    df["pred_days"] = None
+    if df.empty:
+        return df
+    try:
+        clf, reg = _load_models()
+        feats = []
+        for rec in df.to_dict("records"):
+            user = {"seller_state": rec["seller_state"], "customer_state": rec["customer_state"]}
+            for key, col in (("distance_km", "avg_distance_km"), ("total_price", "med_price"),
+                             ("total_freight", "med_freight"), ("product_weight_g", "med_weight"),
+                             ("estimated_days", "avg_estimated_days")):
+                val = _clean_num(rec.get(col))
+                if val is not None:
+                    user[key] = val
+            if category:
+                user["product_category_name_english"] = category
+            feats.append(_build_feature_row(user))
+        X = pd.DataFrame(feats)
+        df["pred_late_pct"] = np.round(clf.predict_proba(X)[:, 1].astype("float64") * 100, 1)
+        df["pred_days"] = np.round(reg.predict(X).astype("float64"), 1)
+    except Exception:  # noqa: BLE001 — thiếu model/lệch cột: bỏ qua dự đoán, không làm hỏng bản đồ
+        pass
+    return df
+
+
+def _flow_frame(start=None, end=None, category=None) -> pd.DataFrame:
+    """DataFrame mọi luồng (seller_state → customer_state) theo bộ lọc, kèm toạ độ + dự đoán.
+    Có cache theo (start, end, category)."""
+    start, end, category = _clean_month(start), _clean_month(end), _clean_category(category)
+    key = ("frame", start, end, category)
+    hit = _cache_get(key)
+    if hit is not None:
+        return hit
+
+    where, params = _map_where(start, end, category)
+    con = _get_duckdb_conn().cursor()  # cursor riêng: an toàn khi nhiều request/luồng cùng truy vấn
+    df = con.execute(f"""
+        SELECT o.seller_state, o.customer_state,
                COUNT(*) AS n_orders,
                ROUND(AVG(o.is_late) * 100, 2) AS late_rate_pct,
                ROUND(AVG(o.distance_km), 1) AS avg_distance_km,
-               ROUND(AVG(o.actual_delivery_days), 2) AS avg_delivery_days
+               ROUND(AVG(o.actual_delivery_days), 2) AS avg_delivery_days,
+               MEDIAN(o.total_price) AS med_price,
+               MEDIAN(o.total_freight) AS med_freight,
+               MEDIAN(o.product_weight_g) AS med_weight,
+               AVG(o.estimated_days) AS avg_estimated_days
         FROM orders o
-        JOIN state_centroid fc ON o.seller_state = fc.state
-        JOIN state_centroid tc ON o.customer_state = tc.state
-        WHERE o.order_status = 'delivered' AND o.seller_state IS NOT NULL AND o.customer_state IS NOT NULL
-        GROUP BY o.seller_state, o.customer_state, fc.lat, fc.lng, tc.lat, tc.lng
-        HAVING COUNT(*) >= 5
+        WHERE {where}
+        GROUP BY o.seller_state, o.customer_state
         ORDER BY n_orders DESC
-    """).fetchdf()
-    return {"flows": _df_to_json_safe_records(df)}
+    """, params).fetchdf()
+
+    cents = _state_centroids()
+    df = df[df["seller_state"].isin(cents) & df["customer_state"].isin(cents)].copy()
+    df["from_lat"] = df["seller_state"].map(lambda s: cents[s][0])
+    df["from_lng"] = df["seller_state"].map(lambda s: cents[s][1])
+    df["to_lat"] = df["customer_state"].map(lambda s: cents[s][0])
+    df["to_lng"] = df["customer_state"].map(lambda s: cents[s][1])
+    df = _add_lane_predictions(df, category)
+    return _cache_put(key, df)
 
 
-def get_order_sample_for_flow(from_state: str, to_state: str, limit: int = 40) -> dict:
+def _aggregate_by_state(df: pd.DataFrame, key: str) -> dict:
+    """Gộp các luồng thành chỉ số theo bang (trọng số = số đơn) — cho lớp choropleth."""
+    out = {}
+    for state, g in df.groupby(key):
+        w = g["n_orders"].astype(float)
+        n = float(w.sum())
+        if n <= 0:
+            continue
+        rec = {
+            "n_orders": int(n),
+            "late_rate_pct": round(float((g["late_rate_pct"] * w).sum() / n), 2),
+            "avg_delivery_days": round(float((g["avg_delivery_days"] * w).sum() / n), 2),
+        }
+        pred = pd.to_numeric(g["pred_late_pct"], errors="coerce")
+        if pred.notna().all():
+            rec["pred_late_pct"] = round(float((pred * w).sum() / n), 2)
+        out[state] = rec
+    return out
+
+
+def get_map_filters() -> dict:
+    """Các lựa chọn cho bộ lọc của bản đồ: danh sách tháng, ngành hàng, bang."""
+    hit = _cache_get(("filters",))
+    if hit is not None:
+        return hit
+    con = _get_duckdb_conn().cursor()  # cursor riêng: an toàn khi nhiều request/luồng cùng truy vấn
+    where, params = _map_where()
+    months = [r[0] for r in con.execute(
+        f"SELECT DISTINCT {_MONTH_SQL} AS m FROM orders o WHERE {where} ORDER BY m", params).fetchall()
+        if r[0] and _MONTH_RE.match(r[0])]
+    cats = con.execute(f"""
+        SELECT o.product_category_name_english AS c, COUNT(*) AS n FROM orders o
+        WHERE {where} AND o.product_category_name_english IS NOT NULL
+        GROUP BY c ORDER BY n DESC LIMIT 80
+    """, params).fetchdf()
+    meta = _load_model_metadata()
+    return _cache_put(("filters",), {
+        "months": months,
+        "categories": _df_to_json_safe_records(cats),
+        "states": sorted(_state_centroids().keys()),
+        "late_threshold_pct": round(float(meta.get("classifier_threshold", 0.5)) * 100, 1),
+    })
+
+
+def get_state_flow_map(start: str | None = None, end: str | None = None,
+                       category: str | None = None, min_orders: int = 5) -> dict:
     """
-    Lấy mẫu NGẪU NHIÊN các đơn hàng cụ thể thuộc 1 cặp (bang seller → bang khách hàng) —
-    dùng cho màn hình animation khi người dùng click vào 1 luồng trên bản đồ tổng thể.
-    Mỗi đơn kèm đủ toạ độ + thông tin chi tiết để hiện khi hover/click từng đơn.
+    Luồng đơn hàng GỘP theo cặp (bang seller → bang khách hàng) cho màn hình tổng thể /map.
+    Bộ lọc tuỳ chọn: start/end ('YYYY-MM'), category, min_orders (mặc định 5).
+    Mỗi luồng gồm: toạ độ 2 bang, số đơn, late rate lịch sử, thời gian giao TB, khoảng cách TB,
+    và rủi ro DỰ ĐOÁN của XGBoost cho đơn điển hình (pred_late_pct, pred_days).
+    Kèm `states_dest` / `states_origin`: chỉ số gộp theo bang nhận/gửi (cho choropleth).
+    """
+    try:
+        min_orders = max(1, min(int(min_orders), 1000))
+    except (TypeError, ValueError):
+        min_orders = 5
+    df = _flow_frame(start, end, category)
+    flows = df[df["n_orders"] >= min_orders]
+    meta = _load_model_metadata()
+    return {
+        "flows": _df_to_json_safe_records(flows.drop(columns=["med_price", "med_freight", "med_weight", "avg_estimated_days"])
+                                          .rename(columns={"seller_state": "from_state", "customer_state": "to_state"})),
+        "states_dest": _aggregate_by_state(df, "customer_state"),
+        "states_origin": _aggregate_by_state(df, "seller_state"),
+        "total_orders": int(df["n_orders"].sum()) if len(df) else 0,
+        "has_prediction": bool(len(df) and df["pred_late_pct"].notna().all()),
+        "late_threshold_pct": round(float(meta.get("classifier_threshold", 0.5)) * 100, 1),
+    }
+
+
+def get_order_sample_for_flow(from_state: str, to_state: str, limit: int = 40,
+                              start: str | None = None, end: str | None = None,
+                              category: str | None = None) -> dict:
+    """
+    Mẫu đơn hàng của 1 luồng (seller_state → customer_state) cho màn hình drill-down.
+    Lấy mẫu PHÂN TẦNG: ~40% đơn trễ + phần còn lại đúng hẹn (nếu đủ), để luôn thấy cả 2 màu
+    dù late rate thật chỉ ~8%. `n_total`/`n_late` là số đơn THẬT của luồng (không phải của mẫu).
     """
     from_state = str(from_state).upper().strip()
     to_state = str(to_state).upper().strip()
+    if not (_STATE_RE.match(from_state) and _STATE_RE.match(to_state)):
+        return {"orders": [], "n_total": 0, "n_late": 0}
     try:
         limit = max(1, min(int(limit), 200))
     except (TypeError, ValueError):
         limit = 40
-    con = _get_duckdb_conn()
-    df = con.execute("""
-        SELECT order_id, seller_id, seller_city, seller_state, seller_lat, seller_lng,
-               customer_city, customer_state, cust_lat AS customer_lat, cust_lng AS customer_lng,
-               is_late, actual_delivery_days, distance_km,
-               order_purchase_timestamp, order_delivered_customer_date, order_estimated_delivery_date,
-               product_category_name_english AS product_category, total_price, total_freight,
-               payment_value, review_score
-        FROM orders
-        WHERE order_status = 'delivered' AND seller_state = ? AND customer_state = ?
-              AND seller_lat IS NOT NULL AND cust_lat IS NOT NULL
-        ORDER BY random()
-        LIMIT ?
-    """, [from_state, to_state, limit]).fetchdf()
-    return {"orders": _df_to_json_safe_records(df), "n_available": len(df)}
+
+    where, params = _map_where(start, end, category)
+    where += " AND o.seller_state = ? AND o.customer_state = ? AND o.seller_lat IS NOT NULL AND o.cust_lat IS NOT NULL"
+    params = params + [from_state, to_state]
+    con = _get_duckdb_conn().cursor()  # cursor riêng: an toàn khi nhiều request/luồng cùng truy vấn
+    cols = """o.order_id, o.seller_id, o.seller_city, o.seller_state, o.seller_lat, o.seller_lng,
+              o.customer_city, o.customer_state, o.cust_lat AS customer_lat, o.cust_lng AS customer_lng,
+              o.is_late, o.actual_delivery_days, o.distance_km,
+              o.order_purchase_timestamp, o.order_delivered_customer_date, o.order_estimated_delivery_date,
+              o.product_category_name_english AS product_category, o.total_price, o.total_freight,
+              o.payment_value, o.review_score"""
+
+    totals = con.execute(f"SELECT COUNT(*), COALESCE(SUM(o.is_late), 0) FROM orders o WHERE {where}", params).fetchone()
+    n_total, n_late = int(totals[0]), int(totals[1])
+
+    late_quota = min(n_late, max(1, math.ceil(limit * 0.4)))
+    late_df = con.execute(
+        f"SELECT {cols} FROM orders o WHERE {where} AND o.is_late = 1 ORDER BY random() LIMIT ?",
+        params + [late_quota]).fetchdf()
+    ok_df = con.execute(
+        f"SELECT {cols} FROM orders o WHERE {where} AND o.is_late = 0 ORDER BY random() LIMIT ?",
+        params + [limit - len(late_df)]).fetchdf()
+    df = pd.concat([late_df, ok_df], ignore_index=True)
+    return {"orders": _df_to_json_safe_records(df), "n_total": n_total, "n_late": n_late, "n_available": n_total}
+
+
+def get_flow_trend(from_state: str, to_state: str, start: str | None = None,
+                   end: str | None = None, category: str | None = None) -> dict:
+    """Chuỗi theo tháng (số đơn, late rate, ngày giao TB) của 1 luồng — vẽ sparkline."""
+    from_state = str(from_state).upper().strip()
+    to_state = str(to_state).upper().strip()
+    if not (_STATE_RE.match(from_state) and _STATE_RE.match(to_state)):
+        return {"series": []}
+    key = ("trend", from_state, to_state, _clean_month(start), _clean_month(end), _clean_category(category))
+    hit = _cache_get(key)
+    if hit is not None:
+        return hit
+    where, params = _map_where(start, end, category)
+    where += " AND o.seller_state = ? AND o.customer_state = ?"
+    df = _get_duckdb_conn().cursor().execute(f"""
+        SELECT {_MONTH_SQL} AS month, COUNT(*) AS n_orders,
+               ROUND(AVG(o.is_late) * 100, 2) AS late_rate_pct,
+               ROUND(AVG(o.actual_delivery_days), 2) AS avg_delivery_days
+        FROM orders o WHERE {where} GROUP BY month ORDER BY month
+    """, params + [from_state, to_state]).fetchdf()
+    return _cache_put(key, {"series": _df_to_json_safe_records(df)})
+
+
+def predict_route(from_state: str, to_state: str, category: str | None = None,
+                  total_price: float | None = None, total_freight: float | None = None,
+                  product_weight_g: float | None = None) -> dict:
+    """
+    Dự đoán cho 1 đơn MỚI đi từ from_state → to_state và trả kèm toạ độ để vẽ lên bản đồ.
+    Khoảng cách/hạn giao lấy theo dữ liệu thật của luồng (nếu có), không thì tính Haversine.
+    """
+    f, t = str(from_state).upper().strip(), str(to_state).upper().strip()
+    cents = _state_centroids()
+    if f not in cents or t not in cents:
+        return {"error": f"Bang không hợp lệ: '{from_state}' → '{to_state}'."}
+
+    lane = _flow_frame()
+    row = lane[(lane["seller_state"] == f) & (lane["customer_state"] == t)]
+    distance = _clean_num(row["avg_distance_km"].iloc[0]) if len(row) else None
+    if distance is None:
+        distance = round(_haversine_km(*cents[f], *cents[t]), 1)
+
+    user = {"seller_state": f, "customer_state": t, "distance_km": distance}
+    if len(row):
+        est = _clean_num(row["avg_estimated_days"].iloc[0])
+        if est is not None:
+            user["estimated_days"] = int(round(est))
+    for k, v in (("total_price", total_price), ("total_freight", total_freight),
+                 ("product_weight_g", product_weight_g)):
+        v = _clean_num(v)
+        if v is not None and v >= 0:
+            user[k] = v
+    if category:
+        user["product_category_name_english"] = str(category)
+
+    result = predict_new_order(**user)
+    result.pop("input_used", None)
+    result.update({
+        "from": {"state": f, "lat": cents[f][0], "lng": cents[f][1]},
+        "to": {"state": t, "lat": cents[t][0], "lng": cents[t][1]},
+        "distance_km": distance,
+        "threshold_pct": round(float(_load_model_metadata().get("classifier_threshold", 0.5)) * 100, 1),
+    })
+    return result
+
+
+def show_flow_on_map(from_state: str, to_state: str, mode: str = "late") -> dict:
+    """
+    TOOL CHO AGENT: mở/zoom bản đồ tới 1 luồng (seller_state → customer_state).
+    Giao diện chat sẽ tự mở bản đồ cạnh khung chat khi thấy tool này được gọi.
+    Trả về số liệu của luồng để agent mô tả ngắn gọn cho người dùng.
+    """
+    f, t = str(from_state).upper().strip(), str(to_state).upper().strip()
+    mode = mode if mode in _MAP_METRICS else "late"
+    if not (_STATE_RE.match(f) and _STATE_RE.match(t)):
+        return {"found": False, "error": "from_state/to_state phải là mã bang 2 chữ cái (vd 'SP', 'RJ')."}
+    lane = _flow_frame()
+    row = lane[(lane["seller_state"] == f) & (lane["customer_state"] == t)]
+    if row.empty:
+        return {"found": False, "error": f"Không có đơn hàng đã giao nào trên luồng {f} → {t}."}
+    r = row.iloc[0]
+    return {
+        "found": True,
+        "map_url": f"/map?from={f}&to={t}&mode={mode}",
+        "flow": {
+            "from_state": f, "to_state": t,
+            "n_orders": int(r["n_orders"]),
+            "late_rate_pct": _clean_num(r["late_rate_pct"]),
+            "avg_delivery_days": _clean_num(r["avg_delivery_days"]),
+            "avg_distance_km": _clean_num(r["avg_distance_km"]),
+            "predicted_late_pct_typical_order": _clean_num(r["pred_late_pct"]),
+        },
+        "note": "Bản đồ đã được mở trên giao diện. Hãy tóm tắt ngắn gọn số liệu luồng này cho người dùng.",
+    }
 
 
 def web_search(query: str, max_results: int = 5) -> dict:
