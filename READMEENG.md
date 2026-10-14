@@ -49,7 +49,7 @@ ML Training          DuckDB Analytics
         Flask Web Application
           |             |
           v             v
-       Chat UI       Flow Map
+       Chat UI  <-->  Flow Map
 ~~~
 
 ### Main features
@@ -148,6 +148,7 @@ Uses information available at order placement to return late-delivery risk and e
 - `describe_dataset`
 - `query_dataset_sql`
 - `train_custom_model`
+- `show_flow_on_map`
 
 `query_dataset_sql` is restricted to read-only queries and can access both the aggregated `orders` table and the raw tables needed for detailed joins.
 
@@ -169,39 +170,38 @@ Conversation history is stored in a **canonical provider-independent format**, s
 
 Open:
 
-~~~text
+```
 http://localhost:5000/map
-~~~
+```
 
-The map uses **Leaflet + OpenStreetMap tiles**.
+The map is built with **Leaflet** (CARTO dark basemap or OpenStreetMap, switchable at the top right) and provides:
 
-### Aggregate view
+- **State-to-state flows:** curved arcs `seller_state → customer_state`; thickness = order volume, colour = the selected metric.
+- **Four colour metrics:** historical late rate, **predicted risk (XGBoost)**, average delivery days, order count. The legend adapts to the data.
+- **State choropleth** (by destination or origin state) from a 27-state GeoJSON (`data/brazil_states.geojson`). Click a state to show only its flows.
+- **Filters:** month range, product category, minimum orders per flow.
+- **Top 10 highlighted flows** for the selected metric (click to drill down).
+- **Hover:** tooltip with stats plus a monthly late-rate sparkline.
+- **Drill-down:** 40 **stratified** sample orders (both late and on-time), dots move along the arcs at a speed inversely proportional to real delivery days; pause button and 0.5×–4× speed control.
+- **New-order prediction:** pick seller/customer states, category, price, freight, weight → the route is drawn with late probability, risk level and expected delivery days.
+- **Agent integration:** the `show_flow_on_map` tool — ask "show me the SP → RJ flow on the map" and the chat UI opens the map beside the conversation and zooms to that flow. In the other direction, the **"Ask agent"** button in the drill-down view sends a ready-made question to the chat.
+- Deep links: `/map?from=SP&to=RJ&mode=pred` (`mode`: `late` | `pred` | `days` | `orders`).
 
-- Orders are grouped by `seller_state → customer_state`.
-- Flow width represents order volume.
-- Flow color reflects late-delivery rate.
-- Hover shows order count and late rate.
-- Clicking a flow opens the detailed view.
+> **Note:** map coordinates are **area/ZIP-code averages used for visualization**, not real-time GPS. "Predicted risk" is the model output for a **typical order** of each flow (distance, price, freight, weight and estimated days taken from the flow's real median/mean), so it is not directly comparable 1-to-1 with the historical late rate.
 
-### Detailed view
-
-After selecting a flow:
-
-- A sample of orders for that state pair is displayed.
-- Green lines represent on-time deliveries; red lines represent late deliveries.
-- Animated dots move from seller to customer to illustrate delivery flow.
-- Animation speed is normalized from each order's actual delivery duration.
-- Clicking an order shows order id, seller/customer, distance, category, price, delivery dates, late status, and review score.
-
-> **Note:** map coordinates are **area/ZIP-code averages used for visualization**. They are not real-time GPS locations of individual orders.
+Aggregates are cached in memory and pre-computed at server start (disable with `MAP_WARMUP=0`).
 
 ### Map endpoints
 
-~~~text
-GET /map
-GET /api/map/flows
-GET /api/map/sample?from=SP&to=RJ&limit=40
-~~~
+```
+GET  /map
+GET  /api/map/filters
+GET  /api/map/flows?start=2017-01&end=2018-08&category=bed_bath_table&min_orders=5
+GET  /api/map/sample?from=SP&to=RJ&limit=40[&start=&end=&category=]
+GET  /api/map/trend?from=SP&to=RJ[&start=&end=&category=]
+POST /api/map/predict-route
+GET  /api/map/geojson
+```
 
 ## 7. Tavily Web Search
 
@@ -237,8 +237,12 @@ GET  /stats/top-risky-states?n=5
 GET  /stats/top-risky-categories?n=5
 
 GET  /map
+GET  /api/map/filters
 GET  /api/map/flows
 GET  /api/map/sample?from=SP&to=RJ&limit=40
+GET  /api/map/trend?from=SP&to=RJ
+POST /api/map/predict-route
+GET  /api/map/geojson
 ~~~
 
 ## 9. Project structure
@@ -248,6 +252,7 @@ GET  /api/map/sample?from=SP&to=RJ&limit=40
 ├── data/
 │   ├── olist_*_dataset.csv
 │   ├── product_category_name_translation.csv
+│   ├── brazil_states.geojson
 │   └── processed_dataset.csv
 │
 ├── models/
