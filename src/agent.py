@@ -179,6 +179,7 @@ TOOL_FUNCTIONS = {
     "describe_dataset": tools.describe_dataset,
     "query_dataset_sql": tools.query_dataset_sql,
     "train_custom_model": tools.train_custom_model,
+    "show_flow_on_map": tools.show_flow_on_map,
 }
 
 
