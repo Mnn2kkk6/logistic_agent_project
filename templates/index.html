@@ -524,6 +524,36 @@
     font-size: 10.5px;
   }
 
+
+  /* ---------- Panel bản đồ cạnh chat ---------- */
+  #mapPanel {
+    display: none;
+    flex-direction: column;
+    width: 46%;
+    min-width: 380px;
+    max-width: 780px;
+    flex-shrink: 0;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+  }
+  #mapPanel.open { display: flex; }
+  .map-panel-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px; border-bottom: 1px solid var(--border);
+    font-size: 13px; font-weight: 700;
+  }
+  .map-panel-head .spacer { flex: 1; }
+  .map-panel-head a, .map-panel-head button {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 7px; padding: 4px 9px; font: inherit; font-size: 12px; font-weight: 600;
+    cursor: pointer; text-decoration: none;
+  }
+  .map-panel-head a:hover, .map-panel-head button:hover { color: var(--teal); border-color: var(--teal); }
+  #mapFrame { flex: 1; width: 100%; border: 0; background: var(--bg); }
+  @media (max-width: 900px) {
+    #mapPanel { position: fixed; inset: 0; width: 100%; max-width: none; min-width: 0; z-index: 60; border-left: none; }
+  }
+
   @media (max-width: 800px) {
     aside { width: 240px; }
   }
@@ -620,6 +650,16 @@
     <p class="hint">Dữ liệu: Olist E-commerce (Brazil)</p>
   </div>
 </main>
+
+<section id="mapPanel" aria-label="Bản đồ luồng đơn hàng">
+  <div class="map-panel-head">
+    <span>🗺️ Bản đồ luồng đơn hàng</span>
+    <span class="spacer"></span>
+    <a href="/map" target="_blank" rel="noopener" title="Mở toàn màn hình ở tab mới">Mở tab mới ↗</a>
+    <button type="button" id="mapCloseBtn" title="Đóng bản đồ">✕ Đóng</button>
+  </div>
+  <iframe id="mapFrame" title="Bản đồ luồng đơn hàng" loading="lazy"></iframe>
+</section>
 
 <script>
 const chatInner = document.getElementById('chatInner');
@@ -1227,6 +1267,8 @@ async function sendMessage(text) {
         data.tool_calls
       );
 
+      handleMapToolCalls(data.tool_calls);
+
       // Lưu câu trả lời
       currentConversation.messages.push({
         role: 'assistant',
@@ -1305,6 +1347,76 @@ fetch('/health').then(r => r.json()).then(() => {
   statusDot.className = 'dot err';
   statusText.textContent = 'Không kết nối được server';
 });
+
+
+/* ================= Bản đồ cạnh chat (split view) ================= */
+const mapPanel = document.getElementById('mapPanel');
+const mapFrame = document.getElementById('mapFrame');
+const mapLink = document.querySelector('a[href="/map"].chip');
+let mapSrcSet = false, mapLoaded = false;
+mapFrame.addEventListener('load', () => { mapLoaded = true; });
+
+function mapUrl(p) {
+  const q = new URLSearchParams({ embed: '1' });
+  if (p && p.from && p.to) { q.set('from', p.from); q.set('to', p.to); }
+  if (p && p.mode) q.set('mode', p.mode);
+  return '/map?' + q.toString();
+}
+function openMapPanel(p) {
+  mapPanel.classList.add('open');
+  if (!mapSrcSet || !mapLoaded) {          // lần đầu, hoặc iframe còn đang tải: (đặt lại) src kèm tham số
+    mapLoaded = false; mapSrcSet = true;
+    mapFrame.src = mapUrl(p);
+    return;
+  }
+  if (p && p.from && p.to) {               // iframe đã sẵn sàng: gửi lệnh zoom tới luồng
+    mapFrame.contentWindow.postMessage({ type: 'showFlow', from: p.from, to: p.to, mode: p.mode }, location.origin);
+  }
+}
+function closeMapPanel() { mapPanel.classList.remove('open'); }
+document.getElementById('mapCloseBtn').addEventListener('click', closeMapPanel);
+
+// Nút "Xem Bản đồ" ở sidebar: màn hình rộng → mở cạnh chat; màn hình hẹp → vẫn mở trang /map như cũ.
+if (mapLink) {
+  mapLink.addEventListener('click', (e) => {
+    if (window.innerWidth <= 900) return;
+    e.preventDefault();
+    mapPanel.classList.contains('open') ? closeMapPanel() : openMapPanel();
+  });
+}
+
+// Agent gọi tool show_flow_on_map → tự mở bản đồ tới đúng luồng.
+function handleMapToolCalls(toolCalls) {
+  const calls = (toolCalls || []).filter(tc => tc.name === 'show_flow_on_map' && tc.args);
+  if (!calls.length) return;
+  const a = calls[calls.length - 1].args;
+  const from = String(a.from_state || '').toUpperCase().trim();
+  const to = String(a.to_state || '').toUpperCase().trim();
+  if (/^[A-Z]{2}$/.test(from) && /^[A-Z]{2}$/.test(to)) openMapPanel({ from, to, mode: a.mode });
+}
+
+// Bản đồ → chat: nút "Hỏi agent về luồng này" gửi câu hỏi vào khung chat.
+window.addEventListener('message', (e) => {
+  if (e.origin !== location.origin) return;
+  const d = e.data || {};
+  if (d.type === 'askAgent' && typeof d.text === 'string' && d.text.trim()) {
+    sendMessage(d.text.slice(0, 1000));
+  }
+});
+
+// Từ trang /map (không embed) bấm "Hỏi agent" → về đây với ?ask=...
+(function () {
+  const ask = new URLSearchParams(location.search).get('ask');
+  if (!ask) return;
+  history.replaceState(null, '', location.pathname);
+  let tries = 0;
+  const timer = setInterval(() => {
+    if (modelSelect.value || ++tries > 25) {
+      clearInterval(timer);
+      if (modelSelect.value) sendMessage(ask.slice(0, 1000));
+    }
+  }, 200);
+})();
 
 renderHistory();
 loadModels();
