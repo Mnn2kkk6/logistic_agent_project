@@ -33,6 +33,7 @@ from src.tools import (
     get_state_stats,
     predict_new_order,
     query_dataset_sql,
+    show_flow_on_map,
     top_risky_categories,
     top_risky_states,
     train_custom_model,
@@ -56,6 +57,7 @@ TOOL_FUNCTIONS = {
     "query_dataset_sql": query_dataset_sql,
     "train_custom_model": train_custom_model,
     "web_search": web_search,
+    "show_flow_on_map": show_flow_on_map,
 }
 TOOL_FUNCTIONS.update({
     "get_marketing_funnel_summary": get_marketing_funnel_summary,
@@ -694,6 +696,23 @@ def _local_turn(model, history, user_message, max_tool_rounds):
         result = _run_tool(name, args)
         tool_calls_log.append({"name": name, "args": args})
         return result
+
+    # 0) Xem luồng đơn hàng giữa 2 bang trên bản đồ: "cho tôi xem luồng SP đến RJ trên bản đồ"
+    if any(k in lower for k in ["bản đồ", "ban do", "trên map", "tren map"]):
+        states = _extract_states_in_order(text)
+        if len(states) >= 2:
+            result = call("show_flow_on_map", {"from_state": states[0], "to_state": states[1]})
+            if result.get("found"):
+                fl = result["flow"]
+                pred = fl.get("predicted_late_pct_typical_order")
+                return (
+                    f"Đã mở bản đồ tới luồng **{fl['from_state']} → {fl['to_state']}**: "
+                    f"{fl['n_orders']:,} đơn, tỉ lệ trễ lịch sử {fl['late_rate_pct']}%, "
+                    f"giao trung bình {fl['avg_delivery_days']} ngày, cách nhau ~{round(fl['avg_distance_km'])} km"
+                    + (f"; mô hình dự đoán đơn điển hình trễ ~{pred}%." if pred is not None else "."),
+                    tool_calls_log,
+                )
+            return result.get("error", "Không mở được luồng này trên bản đồ."), tool_calls_log
 
     # 1) Dự đoán đơn hàng mới — có "dự đoán"/"rủi ro" hoặc có số + "km"
     if any(k in lower for k in ["dự đoán", "du doan", "rủi ro trễ", "rui ro tre", "có trễ không", "co tre khong"]) \
