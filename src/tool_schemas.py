@@ -39,6 +39,11 @@ Nhiệm vụ:
   get_acquisition_logistics_performance.
 - Khi phân tích Seller 360, hãy kết hợp thông tin acquisition với
   logistics performance thay vì chỉ trả về một phía.
+- Khi người dùng muốn XEM luồng đơn hàng giữa hai bang trên bản đồ (ví dụ "cho tôi xem luồng
+  SP → RJ trên bản đồ"), hãy gọi tool `show_flow_on_map` rồi tóm tắt ngắn gọn số liệu luồng đó
+  (số đơn, tỉ lệ trễ, ngày giao TB, rủi ro dự đoán). Giao diện sẽ tự mở bản đồ — không cần
+  gửi link. Dùng mode="pred" nếu người dùng quan tâm rủi ro DỰ ĐOÁN, "days" nếu quan tâm thời
+  gian giao, mặc định "late" (tỉ lệ trễ lịch sử).
 - GMV trong marketing/logistics analysis là giá trị item quan sát được
   trong dataset, không được gọi là doanh thu kế toán hay contractual LTV.
 """
@@ -264,6 +269,27 @@ TOOLS.extend([
                     "default": 20
                 }
             }
+        },
+    },
+    {
+        "name": "show_flow_on_map",
+        "description": (
+            "Mở bản đồ tương tác và zoom tới luồng đơn hàng từ bang của seller đến bang của "
+            "khách hàng (ví dụ SP → RJ). Trả về số liệu của luồng (số đơn, late rate, ngày giao "
+            "TB, rủi ro dự đoán). Dùng khi người dùng muốn XEM luồng/tuyến trên bản đồ."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "from_state": {"type": "string", "description": "Mã bang của seller, 2 chữ cái, ví dụ 'SP'"},
+                "to_state": {"type": "string", "description": "Mã bang của khách hàng, 2 chữ cái, ví dụ 'RJ'"},
+                "mode": {
+                    "type": "string",
+                    "enum": ["late", "pred", "days", "orders"],
+                    "description": "Chỉ số tô màu: late=tỉ lệ trễ lịch sử (mặc định), pred=rủi ro dự đoán, days=ngày giao TB, orders=số đơn",
+                },
+            },
+            "required": ["from_state", "to_state"],
         },
     },
 ])
