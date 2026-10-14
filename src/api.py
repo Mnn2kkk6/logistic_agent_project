@@ -28,7 +28,7 @@ import os
 import uuid
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, session
+from flask import Flask, jsonify, render_template, request, send_from_directory, session
 
 from src import providers, tools
 from src.marketing_tools import (
@@ -159,12 +159,26 @@ def chat_restore():
 
 @app.get("/map")
 def map_page():
-    return render_template("map.html")
+    # CARTO yêu cầu API key (miễn phí) cho tile raster; không có key thì map.html tự dùng nền OSM.
+    # Key sẽ hiện trong HTML gửi cho người xem (không phải bí mật) — để ở biến môi trường cho dễ đổi.
+    return render_template("map.html", carto_key=os.environ.get("CARTO_API_KEY", "").strip())
+
+
+@app.get("/api/map/filters")
+def map_filters():
+    """Danh sách tháng / ngành hàng / bang cho bộ lọc của bản đồ."""
+    return jsonify(tools.get_map_filters())
 
 
 @app.get("/api/map/flows")
 def map_flows():
-    return jsonify(tools.get_state_flow_map())
+    """Luồng gộp theo bang. Query: start, end (YYYY-MM), category, min_orders."""
+    return jsonify(tools.get_state_flow_map(
+        start=request.args.get("start"),
+        end=request.args.get("end"),
+        category=request.args.get("category"),
+        min_orders=request.args.get("min_orders", 5),
+    ))
 
 
 @app.get("/api/map/sample")
@@ -175,7 +189,45 @@ def map_sample():
         limit = int(request.args.get("limit", 40))
     except ValueError:
         limit = 40
-    return jsonify(tools.get_order_sample_for_flow(from_state, to_state, limit))
+    return jsonify(tools.get_order_sample_for_flow(
+        from_state, to_state, limit,
+        start=request.args.get("start"),
+        end=request.args.get("end"),
+        category=request.args.get("category"),
+    ))
+
+
+@app.get("/api/map/trend")
+def map_trend():
+    """Chuỗi theo tháng của 1 luồng (cho sparkline)."""
+    return jsonify(tools.get_flow_trend(
+        request.args.get("from", ""), request.args.get("to", ""),
+        start=request.args.get("start"),
+        end=request.args.get("end"),
+        category=request.args.get("category"),
+    ))
+
+
+@app.post("/api/map/predict-route")
+def map_predict_route():
+    """Dự đoán 1 đơn mới giữa 2 bang và trả kèm toạ độ để vẽ lên bản đồ."""
+    p = request.get_json(force=True, silent=True) or {}
+    result = tools.predict_route(
+        p.get("from_state", ""), p.get("to_state", ""),
+        category=p.get("category") or None,
+        total_price=p.get("total_price"),
+        total_freight=p.get("total_freight"),
+        product_weight_g=p.get("product_weight_g"),
+    )
+    return jsonify(result), (400 if "error" in result else 200)
+
+
+@app.get("/api/map/geojson")
+def map_geojson():
+    """Ranh giới 27 bang Brazil (đã đơn giản hoá) cho lớp choropleth."""
+    resp = send_from_directory(tools.BASE_DIR / "data", "brazil_states.geojson", mimetype="application/json")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
 
 
 @app.post("/chat")
@@ -225,6 +277,21 @@ def seller_360(seller_id):
 def acquisition_logistics():
     limit = int(request.args.get("limit", 20))
     return jsonify(get_acquisition_logistics_performance(limit))
+
+
+def _warm_map_cache():
+    """Tính sẵn dữ liệu bản đồ (filters + luồng mặc định) ở luồng nền để lần mở /map đầu tiên
+    không phải chờ DuckDB đọc CSV + chạy model. Tắt bằng MAP_WARMUP=0."""
+    try:
+        tools.get_map_filters()
+        tools.get_state_flow_map()
+    except Exception:  # noqa: BLE001 — warm-up chỉ là tối ưu, lỗi thì bỏ qua
+        app.logger.exception("Warm-up bản đồ thất bại (bỏ qua)")
+
+
+if os.environ.get("MAP_WARMUP", "1") == "1":
+    import threading
+    threading.Thread(target=_warm_map_cache, daemon=True).start()
 
 
 if __name__ == "__main__":
