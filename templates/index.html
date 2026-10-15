@@ -655,7 +655,7 @@
   <div class="map-panel-head">
     <span>🗺️ Bản đồ luồng đơn hàng</span>
     <span class="spacer"></span>
-    <a href="/map" target="_blank" rel="noopener" title="Mở toàn màn hình ở tab mới">Mở tab mới ↗</a>
+    <a id="mapNewTab" href="/map" target="_blank" rel="noopener" title="Mở toàn màn hình ở tab mới (giữ nguyên bản đồ đang xem)">Mở tab mới ↗</a>
     <button type="button" id="mapCloseBtn" title="Đóng bản đồ">✕ Đóng</button>
   </div>
   <iframe id="mapFrame" title="Bản đồ luồng đơn hàng" loading="lazy"></iframe>
@@ -1375,6 +1375,24 @@ function openMapPanel(p) {
 }
 function closeMapPanel() { mapPanel.classList.remove('open'); }
 document.getElementById('mapCloseBtn').addEventListener('click', closeMapPanel);
+
+// "Mở tab mới": mở /map với đúng trạng thái bản đồ đang xem (luồng, bộ lọc, chỉ số…).
+// Trang /map ghi trạng thái lên URL của chính nó (cùng origin nên đọc được từ khung chat).
+const mapNewTab = document.getElementById('mapNewTab');
+function currentMapUrl() {
+  try {
+    if (mapSrcSet) {
+      const q = new URLSearchParams(mapFrame.contentWindow.location.search);
+      q.delete('embed');
+      const s = q.toString();
+      return '/map' + (s ? '?' + s : '');
+    }
+  } catch (e) { /* iframe chưa sẵn sàng → mở /map trống */ }
+  return '/map';
+}
+// Cập nhật href trước khi trình duyệt điều hướng (cả khi bấm chuột giữa / chuột phải → "mở trong tab mới").
+['mouseenter', 'focus', 'touchstart', 'click', 'auxclick', 'contextmenu'].forEach(ev =>
+  mapNewTab.addEventListener(ev, () => { mapNewTab.href = currentMapUrl(); }));
 
 // Nút "Xem Bản đồ" ở sidebar: màn hình rộng → mở cạnh chat; màn hình hẹp → vẫn mở trang /map như cũ.
 if (mapLink) {
