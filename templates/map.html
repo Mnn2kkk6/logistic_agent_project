@@ -55,13 +55,16 @@
 
   /* overlays trên bản đồ */
   .ov { position:absolute; z-index:1000; background:var(--panel); border:1px solid var(--border); border-radius:10px; box-shadow:0 4px 16px rgba(0,0,0,.4); }
-  #info { top:12px; left:12px; padding:10px 12px; max-width:260px; font-size:12.5px; line-height:1.55; display:none; }
+  /* Cột xếp dọc ở góc trên-trái: thanh điều khiển (detailBar) rồi tới thẻ thông tin (info). Chừa 58px bên phải cho nút layers của Leaflet. */
+  #topStack { position:absolute; top:12px; left:12px; right:58px; z-index:1000; display:flex; flex-direction:column; align-items:flex-start; gap:8px; pointer-events:none; }
+  #topStack > .ov { position:static; pointer-events:auto; }
+  #info { padding:10px 12px; max-width:min(300px,100%); font-size:12.5px; line-height:1.55; display:none; }
   #info .t { font-weight:700; margin-bottom:3px; } #info .k { color:var(--muted); }
   #info .spark-lab { color:var(--muted); font-size:11px; }
   #legend { bottom:22px; right:12px; padding:8px 12px; font-size:11.5px; min-width:170px; }
   #legend .bar { height:9px; border-radius:5px; margin:5px 0 3px; }
   #legend .lab { display:flex; justify-content:space-between; color:var(--muted); }
-  #detailBar { top:12px; left:50%; transform:translateX(-50%); padding:6px 8px; display:none; gap:6px; align-items:center; white-space:nowrap; }
+  #detailBar { padding:6px 8px; display:none; gap:6px; align-items:center; flex-wrap:wrap; max-width:100%; }
   #detailBar select { width:auto; padding:5px 6px; }
   #loadingMsg { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:var(--muted); z-index:999; text-align:center; max-width:80%; }
   #panelToggle { display:none; position:absolute; z-index:1200; top:10px; left:10px; }
@@ -75,8 +78,7 @@
     #panel { position:absolute; top:0; bottom:0; left:0; width:min(88vw,340px); transform:translateX(-100%); transition:transform .2s; box-shadow:4px 0 16px rgba(0,0,0,.5); }
     #panel.open { transform:none; }
     #panelToggle { display:block; }
-    #info { top:52px; max-width:70vw; }
-    #detailBar { top:52px; max-width:92vw; flex-wrap:wrap; white-space:normal; justify-content:center; }
+    #topStack { top:52px; right:12px; }
     #legend { bottom:34px; right:8px; }
   }
 </style>
@@ -154,12 +156,15 @@
     <button class="btn ghost" id="panelToggle">☰ Bộ lọc</button>
     <div id="map"></div>
     <div id="loadingMsg">Đang tải dữ liệu luồng đơn hàng…</div>
-    <div class="ov" id="info"></div>
+    <div id="topStack">
     <div class="ov" id="detailBar">
       <button class="btn ghost" id="dBack">← Tổng thể</button>
       <button class="btn ghost" id="dPlay">⏸ Tạm dừng</button>
       <select id="dSpeed" title="Tốc độ animation"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
       <button class="btn" id="dAsk">💬 Hỏi agent</button>
+    </div>
+    
+      <div class="ov" id="info"></div>
     </div>
     <div class="ov" id="legend"></div>
   </div>
@@ -232,6 +237,7 @@ const S = {
   geo: null,           // GeoJSON bang
   filters: null,       // phản hồi /api/map/filters
   detail: null,        // {from, to} khi đang ở màn hình chi tiết
+  pendingDetail: null, // luồng lấy từ URL, đang chờ tải mẫu đơn (giữ trong URL cho tới khi vẽ xong)
   domain: [0, 1],
 };
 if (!['late', 'pred', 'days', 'orders'].includes(S.metric)) S.metric = 'late';
@@ -436,6 +442,50 @@ function refreshView() {
   renderChoropleth();
   if (!S.detail) renderFlows();
   renderRank(); renderHint(); renderLegend();
+  syncUrl();
+}
+
+/* ============================ Đồng bộ trạng thái lên URL ============================ */
+// Mọi thay đổi (chỉ số, bộ lọc, luồng đang xem…) được ghi vào ?query của trang. Nhờ vậy nút "Mở tab mới"
+// ở khung chat (và việc F5 / chia sẻ link) giữ nguyên đúng bản đồ đang xem.
+function syncUrl() {
+  const q = new URLSearchParams();
+  if (EMBED) q.set('embed', '1');
+  if (S.metric !== 'late') q.set('mode', S.metric);
+  const d = S.detail || S.pendingDetail;
+  if (d) { q.set('from', d.from); q.set('to', d.to); }
+  const f = currentFilters(), m = S.filters && S.filters.months;
+  if (m && m.length) {
+    if (f.start && f.start !== m[0]) q.set('start', f.start);
+    if (f.end && f.end !== m[m.length - 1]) q.set('end', f.end);
+  }
+  if (f.category) q.set('cat', f.category);
+  if (+$('fMin').value !== 5) q.set('min', $('fMin').value);
+  if (S.group !== 'dest') q.set('grp', S.group);
+  if (S.selectedState) q.set('sel', S.selectedState);
+  if (!S.showChoro) q.set('choro', '0');
+  if (!S.showFlows) q.set('flows', '0');
+  const qs = q.toString();
+  try { history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '')); } catch (e) { /* bỏ qua */ }
+}
+// Khôi phục bộ lọc/hiển thị từ URL (gọi sau khi đã nạp danh sách tháng, ngành hàng).
+function restoreFromParams() {
+  const has = (sel, v) => [...sel.options].some(o => o.value === v);
+  const a = params.get('start'), b = params.get('end'), c = params.get('cat');
+  if (a && has($('fFrom'), a)) $('fFrom').value = a;
+  if (b && has($('fTo'), b)) $('fTo').value = b;
+  if ($('fFrom').value > $('fTo').value) { const t = $('fFrom').value; $('fFrom').value = $('fTo').value; $('fTo').value = t; }
+  if (c && has($('fCat'), c)) $('fCat').value = c;
+  const mn = parseInt(params.get('min'), 10);
+  if (mn >= 1 && mn <= 200) { $('fMin').value = mn; $('fMinVal').textContent = mn; }
+  if (params.get('grp') === 'origin') {
+    S.group = 'origin';
+    $('grpSeg').querySelectorAll('button').forEach(x => x.classList.toggle('on', x.dataset.g === 'origin'));
+  }
+  if (params.get('choro') === '0') { S.showChoro = false; $('chkChoro').checked = false; }
+  if (params.get('flows') === '0') { S.showFlows = false; $('chkFlows').checked = false; }
+  const sel = (params.get('sel') || '').toUpperCase();
+  if (/^[A-Z]{2}$/.test(sel)) S.selectedState = sel;
 }
 
 /* ============================ Bộ lọc ============================ */
@@ -497,7 +547,7 @@ async function loadOrderSample(from, to, keepView = false) {
   const q = filterQS(); q.set('from', from); q.set('to', to); q.set('limit', 40);
   let data;
   try { data = await getJSON('/api/map/sample?' + q); }
-  catch (e) { $('loadingMsg').textContent = 'Không tải được đơn hàng mẫu.'; return; }
+  catch (e) { $('loadingMsg').textContent = 'Không tải được đơn hàng mẫu.'; S.pendingDetail = null; return; }
   $('loadingMsg').style.display = 'none';
   renderDetailView(from, to, data, keepView);
 }
@@ -506,6 +556,8 @@ async function renderDetailView(from, to, data, keepView) {
   stopAnimations();
   flowLayer.clearLayers(); detailLayer.clearLayers();
   S.detail = { from, to };
+  S.pendingDetail = null;
+  syncUrl();
   $('detailBar').style.display = 'flex';
   renderLegend();
 
@@ -556,7 +608,7 @@ function showOrderDetail(o) {
 }
 
 function backToOverview() {
-  stopAnimations(); detailLayer.clearLayers(); S.detail = null;
+  stopAnimations(); detailLayer.clearLayers(); S.detail = null; S.pendingDetail = null;
   $('detailBar').style.display = 'none'; infoEl.style.display = 'none';
   map.closePopup(); map.setView([-14.5, -51.9], 4.3);
   refreshView();
@@ -606,8 +658,8 @@ $('pClear').onclick = () => { predictLayer.clearLayers(); $('pResult').style.dis
 /* ============================ Sự kiện giao diện ============================ */
 $('mMetric').value = S.metric;
 $('mMetric').onchange = e => { S.metric = e.target.value; refreshView(); };
-$('chkChoro').onchange = e => { S.showChoro = e.target.checked; renderChoropleth(); };
-$('chkFlows').onchange = e => { S.showFlows = e.target.checked; if (!S.detail) renderFlows(); };
+$('chkChoro').onchange = e => { S.showChoro = e.target.checked; renderChoropleth(); syncUrl(); };
+$('chkFlows').onchange = e => { S.showFlows = e.target.checked; if (!S.detail) renderFlows(); syncUrl(); };
 $('grpSeg').querySelectorAll('button').forEach(b => b.onclick = () => {
   $('grpSeg').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
   S.group = b.dataset.g; S.selectedState = null; refreshView();
@@ -637,6 +689,9 @@ const ready = (async () => {
   ]);
   S.filters = filters; S.geo = geo;
   populateFilters();
+  restoreFromParams();
+  const pf = (params.get('from') || '').toUpperCase(), pt = (params.get('to') || '').toUpperCase();
+  if (/^[A-Z]{2}$/.test(pf) && /^[A-Z]{2}$/.test(pt)) S.pendingDetail = { from: pf, to: pt };
   await reloadFlows();
 })();
 
