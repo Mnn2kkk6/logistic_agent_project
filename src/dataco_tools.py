@@ -14,6 +14,7 @@ import duckdb
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATACO_CSV = BASE_DIR / "data_2" / "DataCoSupplyChainDataset.csv"
 MAX_ROWS = 200
+_COLUMN_INFO: list[tuple[str, str, str]] = []
 
 def _quote_ident(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
@@ -54,7 +55,8 @@ def _get_conn():
     )
     con.execute(f"CREATE TABLE dataco_orders AS SELECT {select_sql} FROM {source}")
     con.execute("CREATE INDEX IF NOT EXISTS idx_dataco_order_id ON dataco_orders(order_id)")
-    con._dataco_columns = aliases
+    global _COLUMN_INFO
+    _COLUMN_INFO = aliases
     return con
 
 def describe_dataset() -> dict:
@@ -63,7 +65,7 @@ def describe_dataset() -> dict:
     count = con.execute("SELECT COUNT(*) FROM dataco_orders").fetchone()[0]
     columns = [
         {"name": row[1], "source_name": row[0], "type": row[2]}
-        for row in con._dataco_columns
+        for row in _COLUMN_INFO
     ]
     return {
         "dataset": "DataCo Supply Chain",
