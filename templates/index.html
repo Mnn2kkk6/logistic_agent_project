@@ -1290,7 +1290,7 @@ async function readChatResponse(res) {
   try {
     return JSON.parse(raw);
   } catch (_) {
-    const preview = raw.replace(/\\s+/g, ' ').slice(0, 180);
+    const preview = raw.replace(/\s+/g, ' ').slice(0, 180);
     throw new Error(`Phản hồi từ máy chủ không phải JSON (HTTP ${res.status}): ${preview}`);
   }
 }
