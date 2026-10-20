@@ -118,7 +118,7 @@ def _ordered_candidates(task: str) -> list[str]:
     if not ranked:
         # If no online provider has a configured key, the local response remains
         # the final graceful fallback (it may show supported question examples).
-        if dataset_id == "olist" and "local-rule-based" in providers.AVAILABLE_MODELS:
+        if "local-rule-based" in providers.AVAILABLE_MODELS:
             return ["local-rule-based"]
 
     if not ranked:
@@ -155,7 +155,7 @@ def chat_turn_auto(
 
     # Run the existing rule-based agent first. If it recognizes a coded pattern,
     # its answer/tool result wins and no paid API call is made.
-    if "local-rule-based" in providers.AVAILABLE_MODELS:
+    if dataset_id == "olist" and "local-rule-based" in providers.AVAILABLE_MODELS:
         try:
             local_reply, local_tool_calls, local_new_history = providers.chat_turn(
                 "local-rule-based", history, user_message, dataset_id=dataset_id
