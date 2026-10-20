@@ -1,10 +1,11 @@
 """
-Flask API + Web UI cho AI Logistics Agent — hỗ trợ chọn model.
+Flask API + Web UI cho AI Logistics Agent — chọn dataset, tự động định tuyến model ở backend.
 
 Endpoints:
   GET  /                    Giao diện chat web
   GET  /health
-  GET  /models               Danh sách model khả dụng + trạng thái đã cấu hình key hay chưa
+  GET  /models               Danh sách model dành cho chẩn đoán/quản trị (không hiện trên chat UI)
+  GET  /datasets              Danh sách dataset đang khả dụng
   POST /predict               {distance_km, customer_state, seller_state, ...}
   GET  /order/<order_id>
   GET  /stats/state/<state>
@@ -12,10 +13,10 @@ Endpoints:
   GET  /stats/category/<category>
   GET  /stats/top-risky-states?n=5
   GET  /stats/top-risky-categories?n=5
-  POST /chat                  {"message": "...", "model": "..."}  (nhớ lịch sử theo session)
-  POST /chat/restore          {"history": [{"role":"user|assistant", "content":"..."}]}
+  POST /chat                  {"message": "...", "dataset_id": "olist"}  (model tự chọn ở backend)
+  POST /chat/restore          {"history": [...], "dataset_id": "olist"}
                               khôi phục context khi mở lại một cuộc trò chuyện đã lưu ở frontend
-  POST /chat/reset                                  xoá lịch sử hội thoại của session hiện tại
+  POST /chat/reset          {"dataset_id": "olist"}  xoá lịch sử theo dataset của session hiện tại
 
 Chạy local:
     $env:GEMINI_API_KEY="AIza..."        (PowerShell)
@@ -31,6 +32,8 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request, send_from_directory, session
 
 from src import providers, tools
+from src.dataset_registry import DEFAULT_DATASET_ID, get_dataset, list_datasets
+from src.model_router import chat_turn_auto
 from src.marketing_tools import (
     get_marketing_funnel_summary,
     get_marketing_channel_performance,
@@ -72,7 +75,14 @@ def health():
 
 @app.get("/models")
 def models():
+    """Danh sách model chỉ phục vụ chẩn đoán/quản trị; không dùng trong giao diện chat."""
     return jsonify({"models": providers.list_models(), "default": providers.DEFAULT_MODEL})
+
+
+@app.get("/datasets")
+def datasets():
+    """Danh sách dataset có thể chọn trong giao diện chat."""
+    return jsonify({"datasets": list_datasets(), "default": DEFAULT_DATASET_ID})
 
 
 @app.post("/predict")
@@ -115,7 +125,18 @@ def top_categories():
 
 @app.post("/chat/reset")
 def chat_reset():
-    _CHAT_HISTORY.pop(_get_session_id(), None)
+    payload = request.get_json(force=True, silent=True) or {}
+    raw_dataset_id = payload.get("dataset_id", DEFAULT_DATASET_ID)
+    if not isinstance(raw_dataset_id, str):
+        return jsonify({"error": "dataset_id phải là chuỗi."}), 400
+    dataset_id = raw_dataset_id.strip() or DEFAULT_DATASET_ID
+    if get_dataset(dataset_id) is None:
+        return jsonify({"error": f"Dataset '{dataset_id}' không được hỗ trợ."}), 400
+
+    sid = _get_session_id()
+    _CHAT_HISTORY.pop(f"{sid}:{dataset_id}", None)
+    # Dọn key legacy của phiên cũ (nếu server đang chạy khi nâng cấp code).
+    _CHAT_HISTORY.pop(sid, None)
     return jsonify({"status": "ok"})
 
 
@@ -126,6 +147,13 @@ def chat_restore():
     Chỉ nhận role user/assistant và giới hạn số message để tránh nạp payload bất thường.
     """
     payload = request.get_json(force=True) or {}
+    raw_dataset_id = payload.get("dataset_id", DEFAULT_DATASET_ID)
+    if not isinstance(raw_dataset_id, str):
+        return jsonify({"error": "dataset_id phải là chuỗi."}), 400
+    dataset_id = raw_dataset_id.strip() or DEFAULT_DATASET_ID
+    if get_dataset(dataset_id) is None:
+        return jsonify({"error": f"Dataset '{dataset_id}' không được hỗ trợ."}), 400
+
     raw_history = payload.get("history")
 
     if not isinstance(raw_history, list):
@@ -153,8 +181,9 @@ def chat_restore():
 
         canonical_history.append({"role": role, "content": content})
 
-    _CHAT_HISTORY[_get_session_id()] = canonical_history
-    return jsonify({"status": "ok", "messages": len(canonical_history)})
+    history_key = f"{_get_session_id()}:{dataset_id}"
+    _CHAT_HISTORY[history_key] = canonical_history
+    return jsonify({"status": "ok", "messages": len(canonical_history), "dataset_id": dataset_id})
 
 
 @app.get("/map")
@@ -234,26 +263,38 @@ def map_geojson():
 def chat():
     payload = request.get_json(force=True) or {}
     message = (payload.get("message") or "").strip()
-    model = payload.get("model") or providers.DEFAULT_MODEL
+    raw_dataset_id = payload.get("dataset_id", DEFAULT_DATASET_ID)
+    if not isinstance(raw_dataset_id, str):
+        return jsonify({"error": "dataset_id phải là chuỗi."}), 400
+    dataset_id = raw_dataset_id.strip() or DEFAULT_DATASET_ID
+
     if not message:
         return jsonify({"error": "Thiếu nội dung tin nhắn."}), 400
-    if model not in providers.AVAILABLE_MODELS:
-        return jsonify({"error": f"Model '{model}' không hợp lệ."}), 400
+    if get_dataset(dataset_id) is None:
+        return jsonify({"error": f"Dataset '{dataset_id}' không được hỗ trợ."}), 400
 
     sid = _get_session_id()
-    history = _CHAT_HISTORY.setdefault(sid, [])
+    history_key = f"{sid}:{dataset_id}"
+    history = _CHAT_HISTORY.setdefault(history_key, [])
 
     try:
-        reply, tool_calls, new_history = providers.chat_turn(model, history, message)
+        reply, tool_calls, new_history, route_info = chat_turn_auto(
+            history, message, dataset_id=dataset_id
+        )
     except providers.ProviderError as e:
         return jsonify({"error": str(e)}), 502
     except Exception as e:  # noqa: BLE001
         # Bất kỳ lỗi nào khác đều phải trả JSON, không để Flask trả HTML 500 mặc định.
-        app.logger.exception("Lỗi không mong đợi khi xử lý /chat (model=%s)", model)
+        app.logger.exception("Lỗi không mong đợi khi xử lý /chat")
         return jsonify({"error": f"Đã có lỗi không mong đợi khi xử lý yêu cầu: {e}"}), 500
 
-    _CHAT_HISTORY[sid] = new_history
-    return jsonify({"reply": reply, "tool_calls": tool_calls, "model": model})
+    _CHAT_HISTORY[history_key] = new_history
+    app.logger.info(
+        "Chat completed: dataset=%s task=%s model=%s fallback=%s",
+        dataset_id, route_info["task"], route_info["model_id"], route_info["fallback_used"],
+    )
+    # Không trả tên model về frontend: lựa chọn model hoàn toàn ẩn với người dùng.
+    return jsonify({"reply": reply, "tool_calls": tool_calls})
 
 
 @app.get("/marketing/funnel")

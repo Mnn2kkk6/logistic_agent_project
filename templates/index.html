@@ -155,7 +155,7 @@
     color: var(--muted);
   }
 
-  .model-select {
+  .dataset-select {
     width: 100%;
     background: var(--panel-2);
     border: 1px solid var(--border);
@@ -167,15 +167,15 @@
     margin-bottom: 6px;
     cursor: pointer;
   }
-  .model-select:focus { outline: none; border-color: var(--teal); }
-  .model-note {
+  .dataset-select:focus { outline: none; border-color: var(--teal); }
+  .dataset-note {
     font-size: 11px;
     color: var(--muted);
     line-height: 1.5;
     margin: 0 0 22px;
     min-height: 32px;
   }
-  .model-note .warn { color: var(--amber); }
+  .dataset-note .warn { color: var(--amber); }
 
   .sidebar-spacer { flex: 1; min-height: 12px; }
 
@@ -576,9 +576,9 @@
     <div class="history-list" id="historyList"></div>
   </div>
 
-  <p class="section-label">Model</p>
-  <select class="model-select" id="modelSelect"></select>
-  <p class="model-note" id="modelNote"></p>
+  <p class="section-label">Bộ dữ liệu</p>
+  <select class="dataset-select" id="datasetSelect" aria-label="Bộ dữ liệu đang chọn"></select>
+  <p class="dataset-note" id="datasetNote">Đang tải danh sách bộ dữ liệu…</p>
 
   <div class="sidebar-spacer"></div>
 
@@ -647,7 +647,7 @@
       <textarea id="input" rows="1" placeholder="Nhập câu hỏi… (Enter để gửi, Shift+Enter xuống dòng)"></textarea>
       <button class="send" id="sendBtn">Gửi</button>
     </div>
-    <p class="hint">Dữ liệu: Olist E-commerce (Brazil)</p>
+    <p class="hint" id="datasetHint">Dữ liệu: Olist E-commerce (Brazil)</p>
   </div>
 </main>
 
@@ -670,8 +670,9 @@ const sendBtn = document.getElementById('sendBtn');
 const resetBtn = document.getElementById('resetBtn');
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
-const modelSelect = document.getElementById('modelSelect');
-const modelNote = document.getElementById('modelNote');
+const datasetSelect = document.getElementById('datasetSelect');
+const datasetNote = document.getElementById('datasetNote');
+const datasetHint = document.getElementById('datasetHint');
 const historySection = document.getElementById('historySection');
 const historyList = document.getElementById('historyList');
 
@@ -679,7 +680,7 @@ const HISTORY_STORAGE_KEY = 'ai_logistics_chat_history_v2';
 const MAX_HISTORY_ITEMS = 20;
 const MAX_MESSAGES_PER_CONVERSATION = 100;
 
-let currentModels = [];
+let currentDatasets = [];
 
 let currentConversation = {
   active: false,
@@ -690,30 +691,81 @@ let currentConversation = {
   updatedAt: null,
 };
 
-function updateModelNote() {
-  const info = currentModels.find(m => m.id === modelSelect.value);
+const DATASET_STORAGE_KEY = 'ai_logistics_selected_dataset_v1';
+
+function updateDatasetLabels() {
+  const info = currentDatasets.find(item => item.id === datasetSelect.value);
   if (!info) {
-    modelNote.textContent = '';
+    datasetNote.textContent = 'Không có bộ dữ liệu khả dụng.';
     return;
   }
-  const warn = info.configured ? '' : ' — <span class="warn">⚠ chưa cấu hình API key trên server</span>';
-  modelNote.innerHTML = info.note + warn;
+
+  datasetNote.textContent = info.description || 'Bộ dữ liệu sẵn sàng.';
+  datasetHint.textContent = 'Dữ liệu: ' + info.label;
+  document.querySelectorAll('.home-badge').forEach(badge => {
+    badge.innerHTML = '<span class="home-dot"></span> ' + info.label;
+  });
 }
 
-async function loadModels() {
+async function loadDatasets() {
   try {
-    const res = await fetch('/models');
+    const res = await fetch('/datasets');
     const data = await res.json();
-    currentModels = data.models || [];
-    modelSelect.innerHTML = currentModels.map(m =>
-      `<option value="${m.id}">${m.label}${m.configured ? '' : ' (chưa có key)'}</option>`
+    if (!res.ok) throw new Error(data.error || 'HTTP ' + res.status);
+
+    currentDatasets = data.datasets || [];
+    if (!currentDatasets.length) {
+      throw new Error('Server chưa đăng ký bộ dữ liệu nào.');
+    }
+
+    datasetSelect.innerHTML = currentDatasets.map(item =>
+      `<option value="${item.id}">${item.label}</option>`
     ).join('');
-    modelSelect.value = data.default;
-    updateModelNote();
+
+    let savedId = data.default;
+    try {
+      savedId = localStorage.getItem(DATASET_STORAGE_KEY) || data.default;
+    } catch (_) {
+      // localStorage có thể bị trình duyệt chặn; dùng dataset mặc định.
+    }
+
+    datasetSelect.value = currentDatasets.some(item => item.id === savedId)
+      ? savedId
+      : data.default;
+    updateDatasetLabels();
+    return true;
   } catch (err) {
-    modelNote.textContent = 'Không tải được danh sách model.';
+    datasetNote.textContent = 'Không tải được bộ dữ liệu: ' + err.message;
+    return false;
   }
 }
+
+datasetSelect.addEventListener('change', async () => {
+  const nextDatasetId = datasetSelect.value;
+  const previousDatasetId = currentConversation.datasetId || '';
+
+  if (currentConversation.active && previousDatasetId && nextDatasetId !== previousDatasetId) {
+    const confirmed = window.confirm(
+      'Đổi bộ dữ liệu sẽ kết thúc cuộc trò chuyện hiện tại và lưu vào lịch sử. Tiếp tục?'
+    );
+    if (!confirmed) {
+      datasetSelect.value = previousDatasetId;
+      updateDatasetLabels();
+      return;
+    }
+
+    await resetBackendContext(previousDatasetId);
+    finishConversation();
+    showEmptyState('Đã đổi bộ dữ liệu. Hãy bắt đầu câu hỏi mới.');
+  }
+
+  try {
+    localStorage.setItem(DATASET_STORAGE_KEY, nextDatasetId);
+  } catch (_) {
+    // Bỏ qua nếu localStorage không khả dụng.
+  }
+  updateDatasetLabels();
+});
 
 function loadHistory() {
   try {
@@ -871,6 +923,7 @@ function startConversation(text) {
     active: true,
     id: createConversationId(),
     title: truncateTitle(text),
+    datasetId: datasetSelect.value,
     messages: [],
     createdAt: now,
     updatedAt: now,
@@ -909,6 +962,7 @@ function finishConversation() {
   const conversationToSave = {
     id: currentConversation.id,
     title: currentConversation.title,
+    datasetId: currentConversation.datasetId || datasetSelect.value,
     messages: currentConversation.messages.slice(
       -MAX_MESSAGES_PER_CONVERSATION
     ),
@@ -1059,22 +1113,21 @@ function renderConversationMessages(messages) {
   scrollToBottom();
 }
 
-async function resetBackendContext() {
+async function resetBackendContext(datasetId = datasetSelect.value) {
   try {
-    await fetch('/chat/reset', {
-      method: 'POST'
+    const res = await fetch('/chat/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dataset_id: datasetId || 'olist' })
     });
-    return true;
+    return res.ok;
   } catch (err) {
-    console.error(
-      'Không reset được conversation backend:',
-      err
-    );
+    console.error('Không reset được conversation backend:', err);
     return false;
   }
 }
 
-async function restoreBackendContext(messages) {
+async function restoreBackendContext(messages, datasetId = datasetSelect.value) {
   const historyForBackend = messages
     .filter(message =>
       message &&
@@ -1092,7 +1145,8 @@ async function restoreBackendContext(messages) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      history: historyForBackend
+      history: historyForBackend,
+      dataset_id: datasetId || 'olist'
     }),
   });
 
@@ -1123,42 +1177,53 @@ async function openConversation(conversationId) {
     return;
   }
 
+  const targetDatasetId = target.datasetId || (currentDatasets[0] && currentDatasets[0].id) || 'olist';
+
   if (currentConversation.active) {
     const shouldSwitch = window.confirm(
       'Bạn đang ở một cuộc trò chuyện khác. Chuyển sang cuộc trò chuyện này?'
     );
-
     if (!shouldSwitch) return;
 
-    await resetBackendContext();
+    await resetBackendContext(currentConversation.datasetId || datasetSelect.value);
     finishConversation();
   } else {
-    await resetBackendContext();
+    await resetBackendContext(targetDatasetId);
   }
 
+  datasetSelect.value = targetDatasetId;
+  updateDatasetLabels();
   try {
-    await restoreBackendContext(target.messages);
+    await restoreBackendContext(target.messages, targetDatasetId);
 
     currentConversation = {
       active: true,
       id: target.id,
       title: target.title,
+      datasetId: targetDatasetId,
       messages: JSON.parse(JSON.stringify(target.messages)),
       createdAt: target.createdAt || null,
       updatedAt: target.updatedAt || null,
     };
+
+    try {
+      localStorage.setItem(DATASET_STORAGE_KEY, targetDatasetId);
+    } catch (_) {
+      // Không ảnh hưởng việc mở chat nếu localStorage bị chặn.
+    }
 
     renderConversationMessages(currentConversation.messages);
     resetBtn.disabled = false;
     input.focus();
   } catch (err) {
     console.error('Không thể mở conversation:', err);
-    await resetBackendContext();
+    await resetBackendContext(targetDatasetId);
 
     currentConversation = {
       active: false,
       id: null,
       title: '',
+      datasetId: targetDatasetId,
       messages: [],
       createdAt: null,
       updatedAt: null,
@@ -1166,6 +1231,7 @@ async function openConversation(conversationId) {
 
     resetBtn.disabled = true;
     showEmptyState('Không thể khôi phục cuộc trò chuyện này.');
+    updateDatasetLabels();
   }
 }
 
@@ -1218,6 +1284,10 @@ async function deleteHistoryItem(conversationId) {
 
 async function sendMessage(text) {
   if (!text.trim() || sendBtn.disabled) return;
+  if (!datasetSelect.value) {
+    addMessage('agent-error', 'Chưa có bộ dữ liệu khả dụng. Hãy tải lại trang hoặc kiểm tra server.');
+    return;
+  }
 
   startConversation(text);
 
@@ -1246,7 +1316,7 @@ async function sendMessage(text) {
       },
       body: JSON.stringify({
         message: cleanText,
-        model: modelSelect.value
+        dataset_id: datasetSelect.value
       }),
     });
 
@@ -1429,15 +1499,15 @@ window.addEventListener('message', (e) => {
   history.replaceState(null, '', location.pathname);
   let tries = 0;
   const timer = setInterval(() => {
-    if (modelSelect.value || ++tries > 25) {
+    if (datasetSelect.value || ++tries > 25) {
       clearInterval(timer);
-      if (modelSelect.value) sendMessage(ask.slice(0, 1000));
+      if (datasetSelect.value) sendMessage(ask.slice(0, 1000));
     }
   }, 200);
 })();
 
 renderHistory();
-loadModels();
+loadDatasets();
 </script>
 
 </body>
