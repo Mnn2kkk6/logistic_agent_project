@@ -336,7 +336,7 @@ def _openai_compatible_tools():
         {"type": "function", "function": {
             "name": t["name"], "description": t["description"], "parameters": t["input_schema"],
         }}
-        for t in TOOLS
+        for t in _active_tools()
     ]
 
 
