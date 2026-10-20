@@ -118,7 +118,7 @@ def _ordered_candidates(task: str) -> list[str]:
     if not ranked:
         # If no online provider has a configured key, the local response remains
         # the final graceful fallback (it may show supported question examples).
-        if "local-rule-based" in providers.AVAILABLE_MODELS:
+        if dataset_id == "olist" and "local-rule-based" in providers.AVAILABLE_MODELS:
             return ["local-rule-based"]
 
     if not ranked:
@@ -158,7 +158,7 @@ def chat_turn_auto(
     if "local-rule-based" in providers.AVAILABLE_MODELS:
         try:
             local_reply, local_tool_calls, local_new_history = providers.chat_turn(
-                "local-rule-based", history, user_message
+                "local-rule-based", history, user_message, dataset_id=dataset_id
             )
             if local_marker not in local_reply:
                 route_info = {
@@ -184,6 +184,8 @@ def chat_turn_auto(
     candidates = [candidate for candidate in candidates if candidate != "local-rule-based"]
 
     if not candidates:
+        if dataset_id == "dataco":
+            raise providers.ProviderError("DataCo đang được chọn nhưng chưa có model AI trực tuyến khả dụng. Hãy cấu hình API key có quota trong .env.")
         if local_reply is not None and local_new_history is not None:
             route_info = {
                 "task": "local",
@@ -209,7 +211,7 @@ def chat_turn_auto(
     for attempt, model_id in enumerate(candidates, start=1):
         try:
             reply, tool_calls, new_history = providers.chat_turn(
-                model_id, history, user_message
+                model_id, history, user_message, dataset_id=dataset_id
             )
             route_info = {
                 "task": task,
