@@ -22,6 +22,7 @@ import json
 import os
 import re
 import time
+from contextvars import ContextVar
 from urllib import response
 
 from src.tool_schemas import SYSTEM_PROMPT, TOOLS
@@ -39,6 +40,16 @@ from src.tools import (
     train_custom_model,
     web_search,
 )
+from src import dataco_tools
+
+_ACTIVE_DATASET_ID: ContextVar[str] = ContextVar("active_dataset_id", default="olist")
+
+def _active_tools():
+    return dataco_tools.TOOLS if _ACTIVE_DATASET_ID.get() == "dataco" else TOOLS
+
+def _active_system_prompt():
+    return dataco_tools.SYSTEM_PROMPT if _ACTIVE_DATASET_ID.get() == "dataco" else SYSTEM_PROMPT
+
 from src.marketing_tools import (
     get_marketing_funnel_summary,
     get_marketing_channel_performance,
@@ -192,16 +203,25 @@ def list_models() -> list:
 
 
 def _run_tool(name: str, args: dict) -> dict:
-    func = TOOL_FUNCTIONS.get(name)
+    if _ACTIVE_DATASET_ID.get() == "dataco":
+        funcs = {
+            "describe_dataset": dataco_tools.describe_dataset,
+            "query_dataset_sql": dataco_tools.query_dataset_sql,
+            "get_order_info": dataco_tools.get_order_info,
+            "top_risky_regions": dataco_tools.top_risky_regions,
+        }
+    else:
+        funcs = TOOL_FUNCTIONS
+    func = funcs.get(name)
     if func is None:
-        return {"error": f"Không tìm thấy tool '{name}'"}
+        return {"error": f"Tool '{name}' không có trong dataset đang chọn."}
     try:
         return func(**args)
     except Exception as e:  # noqa: BLE001
         return {"error": str(e)}
 
 
-def chat_turn(model: str, history: list, user_message: str, max_tool_rounds: int = 8):
+def chat_turn(model: str, history: list, user_message: str, max_tool_rounds: int = 8, dataset_id: str = "olist"):
     """
     history: list[{"role": "user"|"assistant", "content": str}] — lịch sử canonical.
     Trả về: (reply_text, tool_calls_log, new_history)
@@ -215,20 +235,26 @@ def chat_turn(model: str, history: list, user_message: str, max_tool_rounds: int
     if info["env_key"] is not None and not os.environ.get(info["env_key"]):
         raise ProviderError(f"Chưa cấu hình biến môi trường {info['env_key']} cho model '{model}'.")
 
-    if info["provider"] == "gemini":
-        reply, tool_calls = _gemini_turn(model, history, user_message, max_tool_rounds)
-    elif info["provider"] == "openai":
-        reply, tool_calls = _openai_turn(model, history, user_message, max_tool_rounds)
-    elif info["provider"] == "xai":
-        reply, tool_calls = _xai_turn(model, history, user_message, max_tool_rounds)
-    elif info["provider"] == "groq":
-        reply, tool_calls = _groq_turn(model, history, user_message, max_tool_rounds)
-    elif info["provider"] == "openrouter":
-        reply, tool_calls = _openrouter_turn(model, history, user_message, max_tool_rounds)
-    elif info["provider"] == "local":
-        reply, tool_calls = _local_turn(model, history, user_message, max_tool_rounds)
-    else:  # pragma: no cover — không nên xảy ra vì AVAILABLE_MODELS kiểm soát chặt
-        raise ProviderError(f"Provider '{info['provider']}' chưa được cài đặt.")
+    token = _ACTIVE_DATASET_ID.set(dataset_id if dataset_id in {"olist", "dataco"} else "olist")
+    try:
+        if info["provider"] == "local":
+            if dataset_id == "dataco":
+                raise ProviderError("DataCo cần model AI trực tuyến; rule-based local hiện chỉ hỗ trợ Olist.")
+            reply, tool_calls = _local_turn(model, history, user_message, max_tool_rounds)
+        elif info["provider"] == "gemini":
+            reply, tool_calls = _gemini_turn(model, history, user_message, max_tool_rounds)
+        elif info["provider"] == "openai":
+            reply, tool_calls = _openai_turn(model, history, user_message, max_tool_rounds)
+        elif info["provider"] == "xai":
+            reply, tool_calls = _xai_turn(model, history, user_message, max_tool_rounds)
+        elif info["provider"] == "groq":
+            reply, tool_calls = _groq_turn(model, history, user_message, max_tool_rounds)
+        elif info["provider"] == "openrouter":
+            reply, tool_calls = _openrouter_turn(model, history, user_message, max_tool_rounds)
+        else:  # pragma: no cover
+            raise ProviderError(f"Provider '{info['provider']}' chưa được cài đặt.")
+    finally:
+        _ACTIVE_DATASET_ID.reset(token)
 
     new_history = history + [
         {"role": "user", "content": user_message},
@@ -245,7 +271,7 @@ def _gemini_tools():
         types.FunctionDeclaration(
             name=t["name"], description=t["description"], parameters_json_schema=t["input_schema"],
         )
-        for t in TOOLS
+        for t in _active_tools()
     ]
     return [types.Tool(function_declarations=declarations)]
 
@@ -275,7 +301,7 @@ def _gemini_turn(model, history, user_message, max_tool_rounds):
     from google.genai import types
 
     client = _gemini_client()
-    config = types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, tools=_gemini_tools())
+    config = types.GenerateContentConfig(system_instruction=_active_system_prompt(), tools=_gemini_tools())
 
     contents = []
     for turn in history:
@@ -310,7 +336,7 @@ def _openai_compatible_tools():
         {"type": "function", "function": {
             "name": t["name"], "description": t["description"], "parameters": t["input_schema"],
         }}
-        for t in TOOLS
+        for t in _active_tools()
     ]
 
 
@@ -318,7 +344,7 @@ def _openai_compatible_turn(model, history, user_message, max_tool_rounds, api_k
     from openai import APIError, OpenAI
 
     client = OpenAI(api_key=api_key, base_url=base_url)
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": _active_system_prompt()}]
     messages.extend({"role": t["role"], "content": t["content"]} for t in history)
     messages.append({"role": "user", "content": user_message})
 

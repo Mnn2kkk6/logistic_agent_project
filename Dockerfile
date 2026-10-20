@@ -37,6 +37,7 @@ COPY --from=builder /opt/venv /opt/venv
 COPY src ./src
 COPY templates ./templates
 COPY data ./data
+COPY data_2 ./data_2
 COPY models ./models
 
 # Chạy bằng user thường, không phải root — thực hành bảo mật cơ bản khi deploy.
