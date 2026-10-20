@@ -11,7 +11,7 @@ AI Logistics Agent là một web application hỗ trợ phân tích logistics ch
 - **Late-delivery prediction:** dự đoán xác suất giao hàng trễ cho một đơn hàng mới.
 - **Delivery-time prediction:** ước tính số ngày giao hàng thực tế.
 - **AI Agent:** người dùng hỏi bằng ngôn ngữ tự nhiên; LLM tự chọn tool phù hợp để lấy dữ liệu hoặc chạy phân tích.
-- **Multi-provider LLM:** hỗ trợ Gemini, OpenAI, xAI/Grok, Groq và local rule-based fallback.
+- **Automatic multi-provider LLM routing:** backend tự chọn model theo độ phức tạp câu hỏi, API key đã cấu hình và khả năng dự phòng; giao diện chat không hiển thị bộ chọn model.
 - **SQL analytics với DuckDB:** cho phép thực hiện các truy vấn `SELECT` / `WITH ... SELECT` trên dataset.
 - **Order lookup & operational statistics:** tra cứu đơn hàng, seller, bang khách hàng, ngành hàng và các nhóm rủi ro.
 - **Interactive flow map:** bản đồ luồng đơn hàng theo cặp `seller state → customer state`, có drill-down tới các đơn hàng mẫu và animation theo thời gian giao hàng.
@@ -154,7 +154,7 @@ Dùng các thông tin có thể biết khi đặt hàng để trả về rủi r
 
 ## 5. Multi-provider LLM
 
-Người dùng có thể chọn model trực tiếp trên web UI:
+Web UI cho phép người dùng chọn bộ dữ liệu. Model LLM được tự động chọn ở backend; bảng dưới đây chỉ dùng để mô tả các model đã khai báo trong cấu hình dự án:
 
 | Provider | Models in current project |
 |---|---|
@@ -224,7 +224,8 @@ GET  /                         Web chat UI
 GET  /health                   Healthcheck
 GET  /models                   Available LLM models + key status
 
-POST /chat                     Chat with selected model
+GET  /datasets                 Available datasets for the chat selector
+POST /chat                     Chat with automatic model routing
 POST /chat/reset               Reset current conversation
 
 POST /predict                  Predict a new order
