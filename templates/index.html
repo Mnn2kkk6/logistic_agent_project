@@ -1282,6 +1282,19 @@ async function deleteHistoryItem(conversationId) {
 
 
 
+async function readChatResponse(res) {
+  const raw = await res.text();
+  if (!raw.trim()) {
+    throw new Error(`Máy chủ trả về phản hồi rỗng (HTTP ${res.status}). Hãy xem log trong terminal chạy Flask.`);
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    const preview = raw.replace(/\\s+/g, ' ').slice(0, 180);
+    throw new Error(`Phản hồi từ máy chủ không phải JSON (HTTP ${res.status}): ${preview}`);
+  }
+}
+
 async function sendMessage(text) {
   if (!text.trim() || sendBtn.disabled) return;
   if (!datasetSelect.value) {
@@ -1320,7 +1333,7 @@ async function sendMessage(text) {
       }),
     });
 
-    const data = await res.json();
+    const data = await readChatResponse(res);
     removeThinking();
 
     if (!res.ok || data.error) {
@@ -1352,9 +1365,12 @@ async function sendMessage(text) {
   } catch (err) {
     removeThinking();
 
+    const isServerResponseError = /^Máy chủ trả về|^Phản hồi từ máy chủ/.test(err.message || '');
     addMessage(
       'agent-error',
-      'Không kết nối được tới server: ' + err.message
+      isServerResponseError
+        ? err.message
+        : 'Không kết nối được tới server: ' + err.message
     );
 
   } finally {
