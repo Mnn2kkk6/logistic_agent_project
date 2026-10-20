@@ -1640,13 +1640,12 @@ def _local_turn(model, history, user_message, max_tool_rounds):
 
     # Không khớp mẫu nào — hướng dẫn người dùng
     return (
-        "Mình đang chạy ở chế độ **Local** (rule-based, miễn phí, không gọi API) nên chỉ nhận "
-        "diện được vài mẫu câu cố định, chưa hiểu ngôn ngữ tự nhiên linh hoạt như Gemini/GPT/Grok. "
-        "Bạn có thể thử các mẫu câu sau:\n"
+        "Mình chưa nhận diện được mẫu câu này trong các chức năng đã cấu hình sẵn. "
+        "Bạn có thể thử một trong các câu hỏi sau:\n"
         "- \"Top 5 bang trễ nhất\"\n"
         "- \"Ngành hàng nào trễ nhiều nhất\"\n"
         "- \"Thống kê bang RJ\"\n"
         "- \"Dự đoán đơn hàng khách RJ seller SP cách 900km\"\n"
         "- \"Tra cứu đơn hàng <order_id>\"\n\n"
-        "Muốn hỏi tự do, phức tạp hơn, hãy đổi sang model Gemini/GPT/Grok ở dropdown khi có quota."
+        "Với câu hỏi tự do hoặc phân tích phức tạp hơn, hãy kiểm tra cấu hình dịch vụ AI trên server."
     ), tool_calls_log
