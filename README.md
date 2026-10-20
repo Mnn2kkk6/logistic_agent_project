@@ -1,14 +1,16 @@
-# AI Logistics Agent — Olist E-commerce
+# AI Logistics Agent — Multi-dataset Logistics
 
 AI Logistics Agent là một web application hỗ trợ phân tích logistics cho sàn thương mại điện tử. Dự án kết hợp **Machine Learning, LLM Function Calling, SQL analytics và bản đồ luồng đơn hàng** để trả lời câu hỏi nghiệp vụ từ dữ liệu Olist Brazilian E-Commerce.
 
-> **Dataset:** [Brazilian E-Commerce Public Dataset by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)
+> **Datasets:** [Olist Brazilian E-Commerce](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) · DataCo Supply Chain files are placed in data_2/.
 
 **English documentation:** [READMEENG.md](READMEENG.md)
 
 ## 1. Điểm nổi bật
 
-- **Late-delivery prediction:** dự đoán xác suất giao hàng trễ cho một đơn hàng mới.
+- **Late-delivery prediction (Olist):** dự đoán xác suất giao hàng trễ cho một đơn hàng mới bằng model đã huấn luyện trên Olist.
+- **Dataset selector:** chọn Olist hoặc DataCo Supply Chain ở sidebar; DataCo chỉ xuất hiện khi data_2/DataCoSupplyChainDataset.csv đã có.
+- **DataCo analytics:** tra cứu đơn, phân tích SQL và xếp hạng rủi ro giao trễ theo khu vực. DataCo chưa dùng model dự đoán hoặc bản đồ luồng riêng của Olist.
 - **Delivery-time prediction:** ước tính số ngày giao hàng thực tế.
 - **AI Agent:** người dùng hỏi bằng ngôn ngữ tự nhiên; LLM tự chọn tool phù hợp để lấy dữ liệu hoặc chạy phân tích.
 - **Automatic multi-provider LLM routing:** backend tự chọn model theo độ phức tạp câu hỏi, API key đã cấu hình và khả năng dự phòng; giao diện chat không hiển thị bộ chọn model.
