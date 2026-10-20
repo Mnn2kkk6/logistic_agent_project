@@ -177,8 +177,8 @@ def chat_turn_auto(
                 task, model_id, attempt, exc,
             )
 
-    last_error = errors[-1] if errors else "Không có model phù hợp."
+    # Chi tiết lỗi/provider/model đã được ghi vào server log; không gửi tên model về UI.
     raise providers.ProviderError(
-        "Agent chưa thể xử lý câu hỏi bằng các model khả dụng. "
-        f"Lỗi cuối cùng: {last_error}"
+        "Agent hiện chưa thể xử lý câu hỏi. Hãy kiểm tra API key, hạn mức sử dụng "
+        "hoặc cấu hình model provider trong file .env rồi thử lại."
     )
