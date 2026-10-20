@@ -1,10 +1,11 @@
 """
-Flask API + Web UI cho AI Logistics Agent — hỗ trợ chọn model.
+Flask API + Web UI cho AI Logistics Agent — chọn dataset, tự động định tuyến model ở backend.
 
 Endpoints:
   GET  /                    Giao diện chat web
   GET  /health
-  GET  /models               Danh sách model khả dụng + trạng thái đã cấu hình key hay chưa
+  GET  /models               Danh sách model dành cho chẩn đoán/quản trị (không hiện trên chat UI)
+  GET  /datasets              Danh sách dataset đang khả dụng
   POST /predict               {distance_km, customer_state, seller_state, ...}
   GET  /order/<order_id>
   GET  /stats/state/<state>
@@ -12,10 +13,10 @@ Endpoints:
   GET  /stats/category/<category>
   GET  /stats/top-risky-states?n=5
   GET  /stats/top-risky-categories?n=5
-  POST /chat                  {"message": "...", "model": "..."}  (nhớ lịch sử theo session)
-  POST /chat/restore          {"history": [{"role":"user|assistant", "content":"..."}]}
+  POST /chat                  {"message": "...", "dataset_id": "olist"}  (model tự chọn ở backend)
+  POST /chat/restore          {"history": [...], "dataset_id": "olist"}
                               khôi phục context khi mở lại một cuộc trò chuyện đã lưu ở frontend
-  POST /chat/reset                                  xoá lịch sử hội thoại của session hiện tại
+  POST /chat/reset          {"dataset_id": "olist"}  xoá lịch sử theo dataset của session hiện tại
 
 Chạy local:
     $env:GEMINI_API_KEY="AIza..."        (PowerShell)
@@ -125,7 +126,10 @@ def top_categories():
 @app.post("/chat/reset")
 def chat_reset():
     payload = request.get_json(force=True, silent=True) or {}
-    dataset_id = (payload.get("dataset_id") or DEFAULT_DATASET_ID).strip()
+    raw_dataset_id = payload.get("dataset_id", DEFAULT_DATASET_ID)
+    if not isinstance(raw_dataset_id, str):
+        return jsonify({"error": "dataset_id phải là chuỗi."}), 400
+    dataset_id = raw_dataset_id.strip() or DEFAULT_DATASET_ID
     if get_dataset(dataset_id) is None:
         return jsonify({"error": f"Dataset '{dataset_id}' không được hỗ trợ."}), 400
 
@@ -143,7 +147,10 @@ def chat_restore():
     Chỉ nhận role user/assistant và giới hạn số message để tránh nạp payload bất thường.
     """
     payload = request.get_json(force=True) or {}
-    dataset_id = (payload.get("dataset_id") or DEFAULT_DATASET_ID).strip()
+    raw_dataset_id = payload.get("dataset_id", DEFAULT_DATASET_ID)
+    if not isinstance(raw_dataset_id, str):
+        return jsonify({"error": "dataset_id phải là chuỗi."}), 400
+    dataset_id = raw_dataset_id.strip() or DEFAULT_DATASET_ID
     if get_dataset(dataset_id) is None:
         return jsonify({"error": f"Dataset '{dataset_id}' không được hỗ trợ."}), 400
 
@@ -256,7 +263,10 @@ def map_geojson():
 def chat():
     payload = request.get_json(force=True) or {}
     message = (payload.get("message") or "").strip()
-    dataset_id = (payload.get("dataset_id") or DEFAULT_DATASET_ID).strip()
+    raw_dataset_id = payload.get("dataset_id", DEFAULT_DATASET_ID)
+    if not isinstance(raw_dataset_id, str):
+        return jsonify({"error": "dataset_id phải là chuỗi."}), 400
+    dataset_id = raw_dataset_id.strip() or DEFAULT_DATASET_ID
 
     if not message:
         return jsonify({"error": "Thiếu nội dung tin nhắn."}), 400
