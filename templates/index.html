@@ -702,6 +702,8 @@ function updateDatasetLabels() {
 
   datasetNote.textContent = info.description || 'Bộ dữ liệu sẵn sàng.';
   datasetHint.textContent = 'Dữ liệu: ' + info.label;
+  const mapAnchor = document.querySelector('.chip[href^="/map"]');
+  if (mapAnchor) mapAnchor.href = info.id === 'dataco' ? '/map?dataset=dataco' : '/map';
   document.querySelectorAll('.home-badge').forEach(badge => {
     badge.innerHTML = '<span class="home-dot"></span> ' + info.label;
   });
