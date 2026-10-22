@@ -188,8 +188,9 @@ def chat_restore():
 
 @app.get("/map")
 def map_page():
-    # CARTO yêu cầu API key (miễn phí) cho tile raster; không có key thì map.html tự dùng nền OSM.
-    # Key sẽ hiện trong HTML gửi cho người xem (không phải bí mật) — để ở biến môi trường cho dễ đổi.
+    # DataCo có trang bản đồ quốc gia riêng; bản đồ Olist Brazil vẫn được giữ nguyên.
+    if request.args.get("dataset", "").strip().lower() == "dataco":
+        return render_template("dataco_map.html")
     return render_template("map.html", carto_key=os.environ.get("CARTO_API_KEY", "").strip())
 
 
