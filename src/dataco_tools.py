@@ -58,7 +58,7 @@ def _prepare_dataco_csv(path: Path) -> Path:
     cached = cache_dir / f"{path.stem}-{stat.st_size}-{stat.st_mtime_ns}.utf8.csv"
     if cached.is_file() and cached.stat().st_size > 0:
         return cached
-    with path.open("r", encoding="cp1252", errors="replace", newline="") as source, \\
+    with path.open("r", encoding="cp1252", errors="replace", newline="") as source, \
          cached.open("w", encoding="utf-8", newline="") as target:
         shutil.copyfileobj(source, target, length=1024 * 1024)
     return cached
