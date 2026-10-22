@@ -12,7 +12,7 @@ class DataCoMapTests(unittest.TestCase):
         cls.conn = dataco_tools._get_conn()
 
     def test_sensitive_contact_fields_are_not_in_agent_table(self):
-        columns = {row[1] for row in self.conn.execute("DESCRIBE dataco_orders").fetchall()}
+        columns = {row[0] for row in self.conn.execute("DESCRIBE dataco_orders").fetchall()}
         for sensitive in ("customer_email", "customer_fname", "customer_lname", "customer_password",
                           "customer_street", "customer_zipcode", "product_image"):
             self.assertNotIn(sensitive, columns)
