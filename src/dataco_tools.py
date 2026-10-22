@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import tempfile
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -44,14 +46,33 @@ def _safe_name(value: str) -> str:
     return name
 
 
+def _prepare_dataco_csv(path: Path) -> Path:
+    """Transcode the mixed ISO-8859-1/Windows-1252 source bytes into cached UTF-8.
+
+    The source has a few Windows-1252 punctuation bytes in the C1 range, which DuckDB's
+    latin-1 reader rejects. The original CSV is not modified.
+    """
+    stat = path.stat()
+    cache_dir = Path(tempfile.gettempdir()) / "logistic_agent_dataco_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cached = cache_dir / f"{path.stem}-{stat.st_size}-{stat.st_mtime_ns}.utf8.csv"
+    if cached.is_file() and cached.stat().st_size > 0:
+        return cached
+    with path.open("r", encoding="cp1252", errors="replace", newline="") as source, \\
+         cached.open("w", encoding="utf-8", newline="") as target:
+        shutil.copyfileobj(source, target, length=1024 * 1024)
+    return cached
+
+
 @lru_cache(maxsize=1)
 def _get_conn():
     """Load only safe DataCo columns into a private DuckDB connection."""
     if not DATACO_CSV.is_file():
         raise FileNotFoundError(f"Không tìm thấy {DATACO_CSV}. Hãy đặt CSV chính vào data_2/.")
     con = duckdb.connect(database=":memory:")
-    path = str(DATACO_CSV).replace("'", "''")
-    source = f"read_csv_auto('{path}', header=true, sample_size=20000, encoding='latin-1')"
+    csv_path = _prepare_dataco_csv(DATACO_CSV)
+    path = str(csv_path).replace("'", "''")
+    source = f"read_csv_auto('{path}', header=true, sample_size=20000)"
     schema = con.execute(f"DESCRIBE SELECT * FROM {source}").fetchall()
     aliases, used = [], set()
     for row in schema:
@@ -214,7 +235,8 @@ def _get_access_conn():
     ).fetchone()[0]
     if not exists:
         path = str(ACCESS_LOG_CSV).replace("'", "''")
-        source = f"read_csv_auto('{path}', header=true, sample_size=20000, encoding='latin-1')"
+        # The access log is UTF-8. Only the safe six columns are selected below.
+        source = f"read_csv_auto('{path}', header=true, sample_size=20000)"
         schema = [row[0] for row in con.execute(f"DESCRIBE SELECT * FROM {source}").fetchall()]
         by_norm = {_safe_name(c): c for c in schema}
         required = ["product", "category", "date", "month", "hour", "department"]
