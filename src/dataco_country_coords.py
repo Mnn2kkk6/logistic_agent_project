@@ -50,6 +50,7 @@ Eslovaquia|48.66667|19.5
 Eslovenia|46.11667|14.81667
 España|40|-4
 Estados Unidos|38|-97
+EE. UU.|38|-97
 Estonia|59|26
 Etiopía|8|38
 Filipinas|13|122
