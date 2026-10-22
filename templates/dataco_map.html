@@ -49,6 +49,32 @@ const map=L.map('map',{worldCopyJump:true}).setView([20,0],2);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:7,attribution:'© OpenStreetMap contributors'}).addTo(map);
 const flowLayer=L.layerGroup().addTo(map),pointLayer=L.layerGroup().addTo(map);
 let filterState={},flowState=[],selectedFlow=null;
+
+async function requestJSON(url, options={}) {
+  const response = await fetch(url, {headers: {Accept: 'application/json'}, ...options});
+  const body = await response.text();
+  if (!body || !body.trim()) {
+    throw new Error(
+      'API ' + url + ' trả về nội dung rỗng (HTTP ' + response.status + '). ' +
+      'Hãy kiểm tra terminal Flask, xác nhận src/api.py đã cập nhật và khởi động lại server.'
+    );
+  }
+  let data;
+  try {
+    data = JSON.parse(body);
+  } catch (_) {
+    const preview = body.replace(/\\s+/g, ' ').slice(0, 180);
+    throw new Error(
+      'API ' + url + ' không trả JSON hợp lệ (HTTP ' + response.status + '): ' + preview
+    );
+  }
+  if (!response.ok || (data && data.error)) {
+    const detail = data && data.error ? data.error : ('HTTP ' + response.status);
+    throw new Error('API ' + url + ': ' + detail);
+  }
+  return data;
+}
+
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function num(v,d=0){return v==null||v===''?'—':Number(v).toLocaleString('vi-VN',{maximumFractionDigits:d});}
 function query(){const q=new URLSearchParams();for(const [id,key] of [['start','start_date'],['end','end_date'],['market','market'],['mode','shipping_mode']])if($(id).value)q.set(key,$(id).value);return q;}
