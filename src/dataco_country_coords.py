@@ -121,6 +121,7 @@ Países Bajos|52.5|5.75
 Perú|-10|-76
 Polonia|52|20
 Portugal|39.5|-8
+Puerto Rico|18.25|-66.5
 Qatar|25.5|51.25
 Reino Unido|54|-2
 República Centroafricana|7|21
