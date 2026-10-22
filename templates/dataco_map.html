@@ -63,7 +63,7 @@ async function requestJSON(url, options={}) {
   try {
     data = JSON.parse(body);
   } catch (_) {
-    const preview = body.replace(/\\s+/g, ' ').slice(0, 180);
+    const preview = body.replace(/\s+/g, ' ').slice(0, 180);
     throw new Error(
       'API ' + url + ' không trả JSON hợp lệ (HTTP ' + response.status + '): ' + preview
     );
