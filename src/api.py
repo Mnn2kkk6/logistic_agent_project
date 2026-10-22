@@ -260,6 +260,60 @@ def map_geojson():
     return resp
 
 
+@app.get("/api/dataco/map/filters")
+def dataco_map_filters():
+    try:
+        return jsonify(dataco_map.get_map_filters())
+    except Exception as exc:  # noqa: BLE001
+        app.logger.exception("DataCo map filters failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/dataco/map/summary")
+def dataco_map_summary():
+    try:
+        return jsonify(dataco_map.get_map_summary(
+            start_date=request.args.get("start_date"), end_date=request.args.get("end_date"),
+            market=request.args.get("market"), shipping_mode=request.args.get("shipping_mode"),
+        ))
+    except Exception as exc:  # noqa: BLE001
+        app.logger.exception("DataCo map summary failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/dataco/map/flows")
+def dataco_map_flows():
+    try:
+        return jsonify(dataco_map.get_country_flows(
+            start_date=request.args.get("start_date"), end_date=request.args.get("end_date"),
+            market=request.args.get("market"), shipping_mode=request.args.get("shipping_mode"),
+            origin_country=request.args.get("origin_country"), destination_country=request.args.get("destination_country"),
+            metric=request.args.get("metric", "orders"), limit=request.args.get("limit", 40),
+            min_orders=request.args.get("min_orders", 20),
+        ))
+    except Exception as exc:  # noqa: BLE001
+        app.logger.exception("DataCo map flows failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/dataco/map/orders")
+def dataco_map_orders():
+    origin = request.args.get("from", request.args.get("origin_country", ""))
+    destination = request.args.get("to", request.args.get("destination_country", ""))
+    if not origin or not destination:
+        return jsonify({"error": "Cần truyền from và to để xem mẫu đơn."}), 400
+    try:
+        return jsonify(dataco_map.get_country_flow_orders(
+            origin, destination,
+            start_date=request.args.get("start_date"), end_date=request.args.get("end_date"),
+            market=request.args.get("market"), shipping_mode=request.args.get("shipping_mode"),
+            limit=request.args.get("limit", 25),
+        ))
+    except Exception as exc:  # noqa: BLE001
+        app.logger.exception("DataCo map orders failed")
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.post("/chat")
 def chat():
     payload = request.get_json(force=True) or {}
