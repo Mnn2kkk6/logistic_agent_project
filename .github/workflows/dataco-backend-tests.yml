@@ -27,5 +27,18 @@ jobs:
         run: python -m pip install --upgrade pip duckdb pandas
       - name: Compile Python source
         run: python -m compileall -q src tests
+      - name: Check DataCo map JavaScript syntax
+        run: |
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          html = Path("templates/dataco_map.html").read_text(encoding="utf-8")
+          scripts = re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", html, flags=re.DOTALL | re.IGNORECASE)
+          inline = [script for script in scripts if script.strip()]
+          if not inline:
+              raise SystemExit("No inline JavaScript found in templates/dataco_map.html")
+          Path("/tmp/dataco_map_inline.js").write_text(inline[-1], encoding="utf-8")
+          PY
+          node --check /tmp/dataco_map_inline.js
       - name: Test DataCo dataset and country map
         run: python -m unittest discover -s tests -p "test_dataco_map.py" -v

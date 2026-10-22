@@ -260,6 +260,25 @@ def map_geojson():
     return resp
 
 
+@app.get("/api/dataco/map/health")
+def dataco_map_health():
+    """Small diagnostic endpoint for debugging local DataCo map API failures."""
+    data_path = dataco_map.dataco_tools.DATACO_CSV
+    exists = data_path.is_file()
+    try:
+        size = data_path.stat().st_size if exists else None
+    except OSError:
+        size = None
+    return jsonify({
+        "ok": exists,
+        "dataset_file_exists": exists,
+        "dataset_file_name": data_path.name,
+        "dataset_file_bytes": size,
+        "expected_path": str(data_path),
+        "hint": None if exists else "Đặt DataCoSupplyChainDataset.csv vào thư mục data_2 cạnh src/.",
+    })
+
+
 @app.get("/api/dataco/map/filters")
 def dataco_map_filters():
     try:
