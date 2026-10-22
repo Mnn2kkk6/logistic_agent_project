@@ -6,7 +6,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_DATASET_ID = "olist"
 DATASETS: dict[str, dict[str, Any]] = {
  "olist": {"id":"olist","label":"Olist E-commerce (Brazil)","description":"Dữ liệu đơn hàng thương mại điện tử Brazil: giao hàng, seller, ngành hàng, rủi ro giao trễ và bản đồ luồng đơn hàng.","region":"Brazil","status":"available","capabilities":["order_lookup","delivery_statistics","late_delivery_prediction","delivery_time_prediction","sql_analytics","flow_map"]},
- "dataco": {"id":"dataco","label":"DataCo Supply Chain (Global)","description":"Dữ liệu chuỗi cung ứng quốc tế: thời gian vận chuyển thực tế/dự kiến, rủi ro giao trễ, quốc gia, khu vực, ngành hàng và phương thức giao hàng. Bản đồ luồng và dự đoán ML riêng chưa được bật.","region":"Global","status":"available","requires_file":BASE_DIR / "data_2" / "DataCoSupplyChainDataset.csv","capabilities":["order_lookup","delivery_statistics","late_delivery_risk_analysis","sql_analytics"]},
+ "dataco": {"id":"dataco","label":"DataCo Supply Chain (Global)","description":"Dữ liệu chuỗi cung ứng quốc tế: SQL analytics, tra cứu đơn, so sánh shipping mode, phân tích nhãn rủi ro, access-log aggregates tùy chọn và bản đồ Customer Country → Order Country (proxy, không phải tuyến kho/seller đã xác minh).","region":"Global","status":"available","requires_file":BASE_DIR / "data_2" / "DataCoSupplyChainDataset.csv","capabilities":["order_lookup","delivery_statistics","late_delivery_risk_analysis","sql_analytics","access_log_analytics","country_flow_map"]},
 }
 def _is_available(item: dict[str, Any]) -> bool:
  required=item.get("requires_file")

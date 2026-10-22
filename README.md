@@ -420,3 +420,11 @@ Cho tôi xem luồng đơn hàng từ SP đến RJ trên bản đồ.
 ---
 
 **Stack:** Python, Pandas, scikit-learn, XGBoost, DuckDB, Flask, Google GenAI, OpenAI API, xAI API, Groq, Tavily, Leaflet, Docker
+
+## DataCo quốc tế: Agent analytics và bản đồ luồng quốc gia
+
+- Chọn DataCo Supply Chain ở sidebar để hỏi agent về đơn hàng, số ngày vận chuyển thực tế/dự kiến, quốc gia đích, khu vực, market, shipping mode và nhãn rủi ro có sẵn.
+- Công cụ SQL chỉ đọc trên bảng `dataco_orders`, giới hạn kết quả, và không đưa tên, email, mật khẩu, địa chỉ đường phố, mã bưu chính hoặc URL ảnh vào bảng agent.
+- Nếu `data_2/tokenized_access_logs.csv` có sẵn cục bộ, agent có thể thống kê lượt truy cập theo sản phẩm/danh mục/giờ. IP và URL không được đưa vào bảng truy vấn; không commit file log thô khi chưa đánh giá rủi ro nhận dạng.
+- Mở bản đồ riêng bằng `/map?dataset=dataco`. API: `GET /api/dataco/map/filters`, `/api/dataco/map/summary`, `/api/dataco/map/flows`, `/api/dataco/map/orders`.
+- Lưu ý dữ liệu: `Customer Country → Order Country` chỉ là proxy từ hai trường hiện có, không phải tuyến kho/seller đã xác minh. `Late_delivery_risk` là nhãn quan sát trong dataset, không phải dự đoán ML. Bản đồ Olist tại `/map` giữ nguyên riêng biệt.

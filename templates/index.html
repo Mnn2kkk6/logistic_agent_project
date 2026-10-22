@@ -702,6 +702,8 @@ function updateDatasetLabels() {
 
   datasetNote.textContent = info.description || 'Bộ dữ liệu sẵn sàng.';
   datasetHint.textContent = 'Dữ liệu: ' + info.label;
+  const mapAnchor = document.querySelector('.chip[href^="/map"]');
+  if (mapAnchor) mapAnchor.href = info.id === 'dataco' ? '/map?dataset=dataco' : '/map';
   document.querySelectorAll('.home-badge').forEach(badge => {
     badge.innerHTML = '<span class="home-dot"></span> ' + info.label;
   });
@@ -1442,20 +1444,32 @@ const mapLink = document.querySelector('a[href="/map"].chip');
 let mapSrcSet = false, mapLoaded = false;
 mapFrame.addEventListener('load', () => { mapLoaded = true; });
 
+let mapFrameDataset = 'olist';
 function mapUrl(p) {
+  const desired = (p && p.dataset) || datasetSelect.value || 'olist';
   const q = new URLSearchParams({ embed: '1' });
-  if (p && p.from && p.to) { q.set('from', p.from); q.set('to', p.to); }
-  if (p && p.mode) q.set('mode', p.mode);
+  if (desired === 'dataco') {
+    q.set('dataset', 'dataco');
+    if (p && p.originCountry) q.set('origin', p.originCountry);
+    if (p && p.destinationCountry) q.set('destination', p.destinationCountry);
+    if (p && p.metric) q.set('metric', p.metric);
+  } else {
+    if (p && p.from && p.to) { q.set('from', p.from); q.set('to', p.to); }
+    if (p && p.mode) q.set('mode', p.mode);
+  }
   return '/map?' + q.toString();
 }
 function openMapPanel(p) {
   mapPanel.classList.add('open');
-  if (!mapSrcSet || !mapLoaded) {          // lần đầu, hoặc iframe còn đang tải: (đặt lại) src kèm tham số
-    mapLoaded = false; mapSrcSet = true;
-    mapFrame.src = mapUrl(p);
+  const desired = (p && p.dataset) || datasetSelect.value || 'olist';
+  if (!mapSrcSet || !mapLoaded || desired !== mapFrameDataset) {
+    mapLoaded = false; mapSrcSet = true; mapFrameDataset = desired;
+    mapFrame.src = mapUrl({ ...(p || {}), dataset: desired });
     return;
   }
-  if (p && p.from && p.to) {               // iframe đã sẵn sàng: gửi lệnh zoom tới luồng
+  if (desired === 'dataco') {
+    mapFrame.contentWindow.postMessage({ type: 'showDatacoFlow', origin_country: p && p.originCountry, destination_country: p && p.destinationCountry, metric: p && p.metric }, location.origin);
+  } else if (p && p.from && p.to) {
     mapFrame.contentWindow.postMessage({ type: 'showFlow', from: p.from, to: p.to, mode: p.mode }, location.origin);
   }
 }
@@ -1491,12 +1505,23 @@ if (mapLink) {
 
 // Agent gọi tool show_flow_on_map → tự mở bản đồ tới đúng luồng.
 function handleMapToolCalls(toolCalls) {
+  const dcCalls = (toolCalls || []).filter(tc => tc.name === 'show_country_flow_map' && tc.args);
+  if (dcCalls.length) {
+    const a = dcCalls[dcCalls.length - 1].args;
+    openMapPanel({
+      dataset: 'dataco',
+      originCountry: String(a.origin_country || '').trim(),
+      destinationCountry: String(a.destination_country || '').trim(),
+      metric: a.metric || 'orders'
+    });
+    return;
+  }
   const calls = (toolCalls || []).filter(tc => tc.name === 'show_flow_on_map' && tc.args);
   if (!calls.length) return;
   const a = calls[calls.length - 1].args;
   const from = String(a.from_state || '').toUpperCase().trim();
   const to = String(a.to_state || '').toUpperCase().trim();
-  if (/^[A-Z]{2}$/.test(from) && /^[A-Z]{2}$/.test(to)) openMapPanel({ from, to, mode: a.mode });
+  if (/^[A-Z]{2}$/.test(from) && /^[A-Z]{2}$/.test(to)) openMapPanel({ dataset: 'olist', from, to, mode: a.mode });
 }
 
 // Bản đồ → chat: nút "Hỏi agent về luồng này" gửi câu hỏi vào khung chat.

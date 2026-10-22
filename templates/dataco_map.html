@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DataCo — Country Flow Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{--bg:#0f151e;--panel:#17212d;--line:#2a3747;--text:#e7edf5;--muted:#95a2b4;--teal:#37c7a6;--amber:#efb34e;--red:#ec6a68}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:13px system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+h1{font-size:16px;margin:0 16px 0 0}label{display:grid;gap:4px;color:var(--muted);font-size:11px}
+select,input,button{background:#202d3b;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:7px 8px;font:inherit}
+button{cursor:pointer}button:hover{border-color:var(--teal)}.layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;height:calc(100vh - 106px)}#map{height:100%;background:#111b25}
+aside{border-left:1px solid var(--line);overflow:auto;padding:12px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px}.num{font-size:19px;font-weight:700;margin-top:5px}.muted{color:var(--muted);font-size:11px;line-height:1.5}
+h2{font-size:13px;margin:14px 0 8px}.flows{list-style:none;padding:0;margin:0}.flows li{padding:9px 0;border-bottom:1px solid var(--line);cursor:pointer}.flows li:hover{color:var(--teal)}.pill{display:inline-block;border:1px solid var(--line);border-radius:100px;padding:2px 6px;margin:2px;font-size:10px;color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:11px}th,td{text-align:left;padding:6px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:500;position:sticky;top:0;background:var(--panel)}
+#orderRows{max-height:40vh;overflow:auto}.error{color:var(--red)}.legend{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.swatch{width:16px;height:4px;display:inline-block;vertical-align:middle;margin-right:3px}
+@media(max-width:850px){.layout{grid-template-columns:1fr;height:auto}#map{height:55vh}aside{border:0;border-top:1px solid var(--line)}header h1{width:100%}}
+</style></head>
+<body>
+<header>
+<h1>🌐 DataCo — Bản đồ luồng quốc gia</h1>
+<label>Từ ngày<input type="date" id="start"></label>
+<label>Đến ngày<input type="date" id="end"></label>
+<label>Market<select id="market"><option value="">Tất cả</option></select></label>
+<label>Shipping Mode<select id="mode"><option value="">Tất cả</option></select></label>
+<label>Chỉ số<select id="metric"><option value="orders">Số đơn</option><option value="late_risk_pct">Nhãn rủi ro trễ (%)</option><option value="avg_shipping_days">Ngày vận chuyển TB</option><option value="sales">Sales</option></select></label>
+<label>Đơn tối thiểu<input type="number" id="minOrders" value="20" min="1" max="1000000" style="width:90px"></label>
+<button id="apply">Áp dụng</button><button id="ask">Hỏi Agent</button>
+</header>
+<div class="layout"><div id="map"></div><aside>
+<div class="cards">
+<div class="card"><div class="muted">Đơn duy nhất</div><div class="num" id="orders">—</div></div>
+<div class="card"><div class="muted">Số ngày giao thực tế TB</div><div class="num" id="days">—</div></div>
+<div class="card"><div class="muted">Nhãn rủi ro trễ TB</div><div class="num" id="risk">—</div></div>
+<div class="card"><div class="muted">Tổng Sales</div><div class="num" id="sales">—</div></div>
+</div>
+<div class="muted" id="note">Đang tải dữ liệu…</div>
+<div class="legend"><span><i class="swatch" style="background:#37c7a6"></i>Nhãn rủi ro thấp</span><span><i class="swatch" style="background:#efb34e"></i>Trung bình</span><span><i class="swatch" style="background:#ec6a68"></i>Cao</span></div>
+<h2>Luồng nổi bật</h2><ul id="flows" class="flows"></ul>
+<h2>Đơn mẫu của luồng đã chọn</h2><div id="selected" class="muted">Bấm một đường luồng để xem mẫu đơn.</div>
+<div id="orderRows"></div>
+</aside></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const map=L.map('map',{worldCopyJump:true}).setView([20,0],2);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:7,attribution:'© OpenStreetMap contributors'}).addTo(map);
+const flowLayer=L.layerGroup().addTo(map),pointLayer=L.layerGroup().addTo(map);
+let filterState={},flowState=[],selectedFlow=null;
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function num(v,d=0){return v==null||v===''?'—':Number(v).toLocaleString('vi-VN',{maximumFractionDigits:d});}
+function query(){const q=new URLSearchParams();for(const [id,key] of [['start','start_date'],['end','end_date'],['market','market'],['mode','shipping_mode']])if($(id).value)q.set(key,$(id).value);return q;}
+function metricValue(f){return Number(f[$('metric').value]||0);}
+function lineColor(f){const r=Number(f.late_risk_pct||0);return r>=75?'#ec6a68':r>=40?'#efb34e':'#37c7a6';}
+function lineWeight(f){const vals=flowState.map(metricValue),v=metricValue(f),max=Math.max(...vals,1);return 1.5+5*Math.sqrt(Math.max(v,0)/max);}
+function arc(a,b){const latMid=(a.lat+b.lat)/2+(Math.abs(a.lng-b.lng)>100?10:0);return [[a.lat,a.lng],[latMid,(a.lng+b.lng)/2],[b.lat,b.lng]];}
+function showFlow(f){selectedFlow=f;$('selected').innerHTML='<b>'+esc(f.origin_country)+' → '+esc(f.destination_country)+'</b><br>'+num(f.orders)+' đơn · '+num(f.avg_actual_days,2)+' ngày TB · nhãn rủi ro '+num(f.late_risk_pct,2)+'%';$('orderRows').innerHTML='<p class="muted">Đang tải mẫu đơn…</p>';const q=query();q.set('from',f.origin_country);q.set('to',f.destination_country);q.set('limit','20');fetch('/api/dataco/map/orders?'+q).then(r=>r.json()).then(d=>{if(d.error)throw Error(d.error);$('orderRows').innerHTML='<table><thead><tr><th>Order ID</th><th>Mode</th><th>Days</th><th>Risk</th></tr></thead><tbody>'+d.rows.map(r=>'<tr><td>'+esc(r.order_id)+'</td><td>'+esc(r.shipping_mode)+'</td><td>'+esc(r.days_for_shipping_real)+'</td><td>'+esc(r.late_delivery_risk)+'</td></tr>').join('')+'</tbody></table>';}).catch(e=>{$('orderRows').innerHTML='<p class="error">'+esc(e.message)+'</p>';});}
+function renderFlows(data){flowLayer.clearLayers();pointLayer.clearLayers();flowState=data.flows||[];for(const f of flowState){const pts=arc(f.origin,f.destination);L.polyline(pts,{color:lineColor(f),weight:lineWeight(f),opacity:.8}).bindTooltip('<b>'+esc(f.origin_country)+' → '+esc(f.destination_country)+'</b><br>Đơn: '+num(f.orders)+'<br>Ngày giao TB: '+num(f.avg_actual_days,2)+'<br>Nhãn risk: '+num(f.late_risk_pct,2)+'%').on('click',()=>showFlow(f)).addTo(flowLayer);L.circleMarker([f.origin.lat,f.origin.lng],{radius:3,color:'#fff',weight:1,fillColor:'#37c7a6',fillOpacity:.9}).bindTooltip(esc(f.origin_country)).addTo(pointLayer);L.circleMarker([f.destination.lat,f.destination.lng],{radius:3,color:'#fff',weight:1,fillColor:'#efb34e',fillOpacity:.9}).bindTooltip(esc(f.destination_country)).addTo(pointLayer);}
+$('flows').innerHTML=flowState.slice(0,30).map((f,i)=>'<li data-i="'+i+'"><b>'+esc(f.origin_country)+' → '+esc(f.destination_country)+'</b><br><span class="muted">'+num(f.orders)+' đơn · '+num(f.avg_actual_days,2)+' ngày TB · '+num(f.late_risk_pct,1)+'% risk-label</span></li>').join('')||'<li class="muted">Không có luồng đáp ứng bộ lọc.</li>';
+$('flows').querySelectorAll('li[data-i]').forEach(li=>li.onclick=()=>{const f=flowState[Number(li.dataset.i)];showFlow(f);map.fitBounds([[f.origin.lat,f.origin.lng],[f.destination.lat,f.destination.lng]],{padding:[50,50],maxZoom:5});});
+if(flowState.length){const coords=[];flowState.forEach(f=>coords.push([f.origin.lat,f.origin.lng],[f.destination.lat,f.destination.lng]));map.fitBounds(coords,{padding:[30,30],maxZoom:3});}}
+async function load(){ $('note').textContent='Đang truy vấn DataCo…';try{const q=query();const [summary,flows]=await Promise.all([fetch('/api/dataco/map/summary?'+q).then(r=>r.json()),fetch('/api/dataco/map/flows?'+(()=>{const x=new URLSearchParams(q);x.set('metric',$('metric').value);x.set('min_orders',$('minOrders').value||20);x.set('limit',120);return x})()).then(r=>r.json())]);if(summary.error)throw Error(summary.error);if(flows.error)throw Error(flows.error);$('orders').textContent=num(summary.orders);$('days').textContent=num(summary.avg_actual_days,2);$('risk').textContent=num(summary.late_risk_pct,2)+'%';$('sales').textContent=num(summary.sales,0);$('note').textContent=(flows.n_flows||0)+' luồng đang hiển thị. '+(flows.proxy_note||'')+' '+(flows.metric_note||'');renderFlows(flows);}catch(e){$('note').innerHTML='<span class="error">'+esc(e.message)+'</span>';}}
+async function init(){try{const r=await fetch('/api/dataco/map/filters');const d=await r.json();if(d.error)throw Error(d.error);filterState=d;if(d.start_date)$('start').value=d.start_date;if(d.end_date)$('end').value=d.end_date;for(const v of d.markets||[])$('market').add(new Option(v,v));for(const v of d.shipping_modes||[])$('mode').add(new Option(v,v));$('note').textContent=d.map_note||'';await load();const p=new URLSearchParams(location.search);if(p.get('origin')&&p.get('destination')){const found=flowState.find(f=>f.origin_country===p.get('origin')&&f.destination_country===p.get('destination'));if(found)showFlow(found);}}catch(e){$('note').innerHTML='<span class="error">'+esc(e.message)+'</span>';}}
+$('apply').onclick=load;$('metric').onchange=load;
+$('flows').addEventListener('click',()=>{});
+$('ask').onclick=()=>{const f=selectedFlow;const question=f?'Phân tích luồng DataCo từ '+f.origin_country+' đến '+f.destination_country+', gồm số đơn, số ngày giao thực tế và nhãn rủi ro giao trễ.':'Phân tích tổng quan bản đồ luồng quốc gia của DataCo và các luồng đáng chú ý.';if(window.parent!==window){window.parent.postMessage({type:'askAgent',text:question},location.origin);}else{location.href='/?ask='+encodeURIComponent(question);}};
+window.addEventListener('message',e=>{if(e.origin!==location.origin)return;const d=e.data||{};if(d.type==='showDatacoFlow'){const f=flowState.find(x=>(!d.origin_country||x.origin_country===d.origin_country)&&(!d.destination_country||x.destination_country===d.destination_country));if(f){if(d.metric)$('metric').value=d.metric;showFlow(f);map.fitBounds([[f.origin.lat,f.origin.lng],[f.destination.lat,f.destination.lng]],{padding:[50,50],maxZoom:5});}}});
+init();
+</script></body></html>

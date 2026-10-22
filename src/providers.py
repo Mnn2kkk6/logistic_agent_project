@@ -209,6 +209,11 @@ def _run_tool(name: str, args: dict) -> dict:
             "query_dataset_sql": dataco_tools.query_dataset_sql,
             "get_order_info": dataco_tools.get_order_info,
             "top_risky_regions": dataco_tools.top_risky_regions,
+            "get_country_delivery_stats": dataco_tools.get_country_delivery_stats,
+            "compare_shipping_modes": dataco_tools.compare_shipping_modes,
+            "top_accessed_products": dataco_tools.top_accessed_products,
+            "access_traffic_by_hour": dataco_tools.access_traffic_by_hour,
+            "show_country_flow_map": dataco_tools.show_country_flow_map,
         }
     else:
         funcs = TOOL_FUNCTIONS

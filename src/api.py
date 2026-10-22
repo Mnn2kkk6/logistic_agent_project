@@ -31,7 +31,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_from_directory, session
 
-from src import providers, tools
+from src import providers, tools, dataco_map
 from src.dataset_registry import DEFAULT_DATASET_ID, get_dataset, list_datasets
 from src.model_router import chat_turn_auto
 from src.marketing_tools import (
@@ -188,8 +188,9 @@ def chat_restore():
 
 @app.get("/map")
 def map_page():
-    # CARTO yêu cầu API key (miễn phí) cho tile raster; không có key thì map.html tự dùng nền OSM.
-    # Key sẽ hiện trong HTML gửi cho người xem (không phải bí mật) — để ở biến môi trường cho dễ đổi.
+    # DataCo có trang bản đồ quốc gia riêng; bản đồ Olist Brazil vẫn được giữ nguyên.
+    if request.args.get("dataset", "").strip().lower() == "dataco":
+        return render_template("dataco_map.html")
     return render_template("map.html", carto_key=os.environ.get("CARTO_API_KEY", "").strip())
 
 
@@ -257,6 +258,60 @@ def map_geojson():
     resp = send_from_directory(tools.BASE_DIR / "data", "brazil_states.geojson", mimetype="application/json")
     resp.headers["Cache-Control"] = "public, max-age=86400"
     return resp
+
+
+@app.get("/api/dataco/map/filters")
+def dataco_map_filters():
+    try:
+        return jsonify(dataco_map.get_map_filters())
+    except Exception as exc:  # noqa: BLE001
+        app.logger.exception("DataCo map filters failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/dataco/map/summary")
+def dataco_map_summary():
+    try:
+        return jsonify(dataco_map.get_map_summary(
+            start_date=request.args.get("start_date"), end_date=request.args.get("end_date"),
+            market=request.args.get("market"), shipping_mode=request.args.get("shipping_mode"),
+        ))
+    except Exception as exc:  # noqa: BLE001
+        app.logger.exception("DataCo map summary failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/dataco/map/flows")
+def dataco_map_flows():
+    try:
+        return jsonify(dataco_map.get_country_flows(
+            start_date=request.args.get("start_date"), end_date=request.args.get("end_date"),
+            market=request.args.get("market"), shipping_mode=request.args.get("shipping_mode"),
+            origin_country=request.args.get("origin_country"), destination_country=request.args.get("destination_country"),
+            metric=request.args.get("metric", "orders"), limit=request.args.get("limit", 40),
+            min_orders=request.args.get("min_orders", 20),
+        ))
+    except Exception as exc:  # noqa: BLE001
+        app.logger.exception("DataCo map flows failed")
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/dataco/map/orders")
+def dataco_map_orders():
+    origin = request.args.get("from", request.args.get("origin_country", ""))
+    destination = request.args.get("to", request.args.get("destination_country", ""))
+    if not origin or not destination:
+        return jsonify({"error": "Cần truyền from và to để xem mẫu đơn."}), 400
+    try:
+        return jsonify(dataco_map.get_country_flow_orders(
+            origin, destination,
+            start_date=request.args.get("start_date"), end_date=request.args.get("end_date"),
+            market=request.args.get("market"), shipping_mode=request.args.get("shipping_mode"),
+            limit=request.args.get("limit", 25),
+        ))
+    except Exception as exc:  # noqa: BLE001
+        app.logger.exception("DataCo map orders failed")
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.post("/chat")
