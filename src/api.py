@@ -31,7 +31,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_from_directory, session
 
-from src import providers, tools
+from src import providers, tools, dataco_map
 from src.dataset_registry import DEFAULT_DATASET_ID, get_dataset, list_datasets
 from src.model_router import chat_turn_auto
 from src.marketing_tools import (
