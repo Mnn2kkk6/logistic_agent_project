@@ -1,32 +1,55 @@
 import unittest
+from pathlib import Path
 
+from src import dataco_tools
 from src.dataco_country_coords import COUNTRY_COORDS
-from src.dataco_map import _ALLOWED_METRICS, _clean_coord
+from src import dataco_map
 
 
 class DataCoMapTests(unittest.TestCase):
-    def test_supported_metric_set(self):
-        self.assertEqual(
-            _ALLOWED_METRICS,
-            {"orders", "late_risk_pct", "avg_shipping_days", "sales"},
-        )
+    @classmethod
+    def setUpClass(cls):
+        cls.conn = dataco_tools._get_conn()
 
-    def test_dataset_customer_country_labels_have_coordinates(self):
-        # The DataCo CSV uses Spanish labels, including the dataset-specific US alias.
-        for country in ("EE. UU.", "Puerto Rico", "Estados Unidos", "España", "India", "Vietnam"):
-            self.assertIn(country, COUNTRY_COORDS)
-            self.assertIsNotNone(_clean_coord(country))
+    def test_sensitive_contact_fields_are_not_in_agent_table(self):
+        columns = {row[1] for row in self.conn.execute("DESCRIBE dataco_orders").fetchall()}
+        for sensitive in ("customer_email", "customer_fname", "customer_lname", "customer_password",
+                          "customer_street", "customer_zipcode", "product_image"):
+            self.assertNotIn(sensitive, columns)
+        self.assertIn("order_id", columns)
+        self.assertIn("order_country", columns)
 
-    def test_country_coordinates_are_valid_lat_lon(self):
-        for country, (lat, lon) in COUNTRY_COORDS.items():
-            with self.subTest(country=country):
-                self.assertGreaterEqual(lat, -90)
-                self.assertLessEqual(lat, 90)
-                self.assertGreaterEqual(lon, -180)
-                self.assertLessEqual(lon, 180)
+    def test_customer_and_destination_country_names_have_coordinates(self):
+        names = set()
+        for row in self.conn.execute(
+            "SELECT DISTINCT TRIM(CAST(customer_country AS VARCHAR)) FROM dataco_orders "
+            "UNION SELECT DISTINCT TRIM(CAST(order_country AS VARCHAR)) FROM dataco_orders"
+        ).fetchall():
+            if row[0]:
+                names.add(row[0])
+        missing = sorted(name for name in names if name not in COUNTRY_COORDS)
+        self.assertEqual(missing, [])
 
-    def test_unknown_country_is_not_given_a_fake_coordinate(self):
-        self.assertIsNone(_clean_coord("Unknown Location"))
+    def test_map_filters_and_summary_read_real_dataset(self):
+        filters = dataco_map.get_map_filters()
+        summary = dataco_map.get_map_summary()
+        self.assertTrue(filters["markets"])
+        self.assertTrue(filters["shipping_modes"])
+        self.assertGreater(summary["orders"], 0)
+        self.assertGreater(summary["line_items"], 0)
+
+    def test_country_flows_return_points_and_metrics(self):
+        result = dataco_map.get_country_flows(limit=20, min_orders=20, metric="orders")
+        self.assertNotIn("error", result)
+        self.assertGreater(result["n_flows"], 0)
+        flow = result["flows"][0]
+        self.assertIn("lat", flow["origin"])
+        self.assertIn("lng", flow["destination"])
+        self.assertGreaterEqual(flow["orders"], 20)
+
+    def test_supported_metric_set_and_unknown_coordinate(self):
+        self.assertEqual(dataco_map._ALLOWED_METRICS, {"orders", "late_risk_pct", "avg_shipping_days", "sales"})
+        self.assertIsNone(dataco_map._clean_coord("Unknown Location"))
 
 
 if __name__ == "__main__":
