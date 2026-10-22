@@ -33,7 +33,7 @@ jobs:
           import re
           from pathlib import Path
           html = Path("templates/dataco_map.html").read_text(encoding="utf-8")
-          scripts = re.findall(r"<script(?:\\s[^>]*)?>(.*?)</script>", html, flags=re.DOTALL | re.IGNORECASE)
+          scripts = re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", html, flags=re.DOTALL | re.IGNORECASE)
           inline = [script for script in scripts if script.strip()]
           if not inline:
               raise SystemExit("No inline JavaScript found in templates/dataco_map.html")
