@@ -1505,12 +1505,23 @@ if (mapLink) {
 
 // Agent gọi tool show_flow_on_map → tự mở bản đồ tới đúng luồng.
 function handleMapToolCalls(toolCalls) {
+  const dcCalls = (toolCalls || []).filter(tc => tc.name === 'show_country_flow_map' && tc.args);
+  if (dcCalls.length) {
+    const a = dcCalls[dcCalls.length - 1].args;
+    openMapPanel({
+      dataset: 'dataco',
+      originCountry: String(a.origin_country || '').trim(),
+      destinationCountry: String(a.destination_country || '').trim(),
+      metric: a.metric || 'orders'
+    });
+    return;
+  }
   const calls = (toolCalls || []).filter(tc => tc.name === 'show_flow_on_map' && tc.args);
   if (!calls.length) return;
   const a = calls[calls.length - 1].args;
   const from = String(a.from_state || '').toUpperCase().trim();
   const to = String(a.to_state || '').toUpperCase().trim();
-  if (/^[A-Z]{2}$/.test(from) && /^[A-Z]{2}$/.test(to)) openMapPanel({ from, to, mode: a.mode });
+  if (/^[A-Z]{2}$/.test(from) && /^[A-Z]{2}$/.test(to)) openMapPanel({ dataset: 'olist', from, to, mode: a.mode });
 }
 
 // Bản đồ → chat: nút "Hỏi agent về luồng này" gửi câu hỏi vào khung chat.
