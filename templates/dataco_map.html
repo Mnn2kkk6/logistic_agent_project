@@ -1,97 +1,175 @@
 <!doctype html>
 <html lang="vi">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DataCo — Country Flow Map</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bản đồ luồng quốc gia — DataCo | AI Logistics Agent</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <style>
-:root{--bg:#0f151e;--panel:#17212d;--line:#2a3747;--text:#e7edf5;--muted:#95a2b4;--teal:#37c7a6;--amber:#efb34e;--red:#ec6a68}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:13px system-ui,-apple-system,"Segoe UI",sans-serif}
-header{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
-h1{font-size:16px;margin:0 16px 0 0}label{display:grid;gap:4px;color:var(--muted);font-size:11px}
-select,input,button{background:#202d3b;color:var(--text);border:1px solid var(--line);border-radius:6px;padding:7px 8px;font:inherit}
-button{cursor:pointer}button:hover{border-color:var(--teal)}.layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;height:calc(100vh - 106px)}#map{height:100%;background:#111b25}
-aside{border-left:1px solid var(--line);overflow:auto;padding:12px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px}.num{font-size:19px;font-weight:700;margin-top:5px}.muted{color:var(--muted);font-size:11px;line-height:1.5}
-h2{font-size:13px;margin:14px 0 8px}.flows{list-style:none;padding:0;margin:0}.flows li{padding:9px 0;border-bottom:1px solid var(--line);cursor:pointer}.flows li:hover{color:var(--teal)}.pill{display:inline-block;border:1px solid var(--line);border-radius:100px;padding:2px 6px;margin:2px;font-size:10px;color:var(--muted)}
-table{width:100%;border-collapse:collapse;font-size:11px}th,td{text-align:left;padding:6px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:500;position:sticky;top:0;background:var(--panel)}
-#orderRows{max-height:40vh;overflow:auto}.error{color:var(--red)}.legend{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.swatch{width:16px;height:4px;display:inline-block;vertical-align:middle;margin-right:3px}
-@media(max-width:850px){.layout{grid-template-columns:1fr;height:auto}#map{height:55vh}aside{border:0;border-top:1px solid var(--line)}header h1{width:100%}}
-</style></head>
+:root{--bg:#0f151e;--panel:#161f2b;--panel2:#1c2733;--border:#263241;--text:#e7eaef;--muted:#8b96a6;--teal:#2fbfa0;--amber:#e8a23d;--red:#e0615a;--blue:#50a8f2;--sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+*{box-sizing:border-box}html,body{height:100%;margin:0}body{font:13px var(--sans);background:var(--bg);color:var(--text);display:flex;flex-direction:column}a{color:var(--teal);text-decoration:none}button,select,input{font:inherit;color:inherit}button{cursor:pointer}
+header{height:45px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--border)}header h1{font-size:14px;margin:0;font-weight:750}header a{color:var(--muted)}body.embed header{display:none}
+.banner{flex-shrink:0;padding:5px 12px;background:rgba(232,162,61,.09);border-bottom:1px solid rgba(232,162,61,.25);color:#eacb91;font-size:10.5px;line-height:1.45}body.embed .banner{padding:5px 10px}
+.app{flex:1;display:flex;min-height:0;position:relative}#panel{width:318px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);overflow-y:auto;padding:10px 13px 16px;z-index:1100}#mapWrap{flex:1;position:relative;min-width:0;min-height:0}#map{position:absolute;inset:0;background:var(--bg)}
+.brand{font-size:14px;font-weight:800;margin:0 0 3px}.subbrand{font-size:10.5px;color:var(--muted);line-height:1.45;margin-bottom:9px}.sec{border-bottom:1px solid var(--border);padding:10px 0 11px}.sec:last-child{border-bottom:0}.sec h3{margin:0 0 8px;font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:750}label.f{display:block;margin:7px 0 4px;color:var(--muted);font-size:11px}select,input[type=date],input[type=number]{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:7px;padding:7px 8px;outline:none}select:focus,input:focus{border-color:var(--teal)}input[type=range]{width:100%;accent-color:var(--teal)}.row{display:flex;gap:7px}.row>*{flex:1;min-width:0}.chk{display:flex;align-items:center;gap:6px;margin:5px 0;color:var(--text);font-size:11.5px;cursor:pointer}.chk input{accent-color:var(--teal)}.hint{color:var(--muted);font-size:10.5px;line-height:1.5;margin-top:5px}.btn{border:1px solid var(--border);border-radius:7px;background:var(--panel2);color:var(--text);font-weight:600;padding:6px 9px;font-size:11px}.btn.primary{background:var(--teal);border-color:var(--teal);color:#06251e}.btn:hover{border-color:var(--teal)}.btn:disabled{opacity:.45;cursor:default}.btnrow{display:flex;gap:6px;margin-top:8px}.btnrow button{flex:1}
+.rank{list-style:none;margin:0;padding:0}.rank li{display:flex;align-items:center;gap:7px;padding:7px 5px;border-radius:7px;cursor:pointer}.rank li:hover,.rank li.selected{background:var(--panel2)}.rank .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}.rank .nm{font-size:11.5px;font-weight:650}.rank .sub{font-size:10px;color:var(--muted);line-height:1.4}.rank .val{margin-left:auto;text-align:right;font-size:11px;font-weight:750;white-space:nowrap}.rank .value-sub{font-size:9.5px;color:var(--muted);font-weight:400}.empty{font-size:10.5px;color:var(--muted);padding:9px 4px}.kpis{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}.kpi{background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:7px 8px;min-width:0}.kpi span{display:block;color:var(--muted);font-size:9.5px}.kpi b{display:block;font-size:13px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.table-wrap{overflow:auto;max-width:100%;max-height:280px}table{border-collapse:collapse;font-size:10px;width:100%;min-width:455px}th,td{padding:6px 5px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}th{position:sticky;top:0;background:var(--panel);color:var(--muted);font-weight:650}.late{color:var(--red);font-weight:650}.ok{color:var(--teal);font-weight:650}.err{color:#ff9a95;white-space:normal;overflow-wrap:anywhere;font-size:10.5px}.small{font-size:9.5px;color:var(--muted);line-height:1.45;margin-top:5px}
+.ov{position:absolute;z-index:1000;background:var(--panel);border:1px solid var(--border);border-radius:9px;box-shadow:0 4px 16px rgba(0,0,0,.38)}#topStack{position:absolute;top:10px;left:10px;right:54px;z-index:1000;display:flex;flex-direction:column;align-items:flex-start;gap:7px;pointer-events:none}#topStack>.ov{position:static;pointer-events:auto}#detailBar{padding:6px 7px;display:none;gap:5px;align-items:center;flex-wrap:wrap;max-width:100%}#detailBar select{width:auto;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:5px 6px;font-size:10.5px}#info{padding:9px 11px;max-width:min(350px,100%);font-size:11.5px;line-height:1.55;display:none}#info .title{font-weight:750;margin-bottom:3px;color:var(--teal)}#info .k{color:var(--muted)}#legend{bottom:18px;right:10px;padding:8px 10px;font-size:10.5px;min-width:165px}#legend .bar{height:8px;border-radius:5px;margin:5px 0 3px}#legend .labs{display:flex;justify-content:space-between;color:var(--muted)}#loadingMsg{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--muted);z-index:999;text-align:center;max-width:80%;background:#111a28e8;border:1px solid var(--border);border-radius:8px;padding:9px 12px}#panelToggle{display:none;position:absolute;z-index:1200;top:9px;left:9px}.tiles-dark{filter:invert(1) hue-rotate(180deg) brightness(.82) contrast(.9) saturate(.55)}.leaflet-control-layers,.leaflet-bar a{background:var(--panel);color:var(--text);border-color:var(--border)}.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--panel2);color:var(--text)}.leaflet-popup-content{font-size:11.5px;line-height:1.55}.leaflet-popup-content b{color:var(--teal)}.leaflet-tooltip{background:var(--panel2);color:var(--text);border:1px solid var(--border);font-size:11px}.attribution{font-size:9px}
+@media(max-width:760px){ #panel{position:absolute;top:0;bottom:0;left:0;width:min(88vw,340px);transform:translateX(-100%);transition:transform .2s;box-shadow:4px 0 16px rgba(0,0,0,.5)}#panel.open{transform:none}#panelToggle{display:block}#topStack{top:48px;right:10px}#legend{bottom:28px;right:7px}.banner{font-size:9.5px}}
+</style>
+</head>
 <body>
-<header>
-<h1>🌐 DataCo — Bản đồ luồng quốc gia</h1>
-<label>Từ ngày<input type="date" id="start"></label>
-<label>Đến ngày<input type="date" id="end"></label>
-<label>Market<select id="market"><option value="">Tất cả</option></select></label>
-<label>Shipping Mode<select id="mode"><option value="">Tất cả</option></select></label>
-<label>Chỉ số<select id="metric"><option value="orders">Số đơn</option><option value="late_risk_pct">Nhãn rủi ro trễ (%)</option><option value="avg_shipping_days">Ngày vận chuyển TB</option><option value="sales">Sales</option></select></label>
-<label>Đơn tối thiểu<input type="number" id="minOrders" value="20" min="1" max="1000000" style="width:90px"></label>
-<button id="apply">Áp dụng</button><button id="ask">Hỏi Agent</button>
-</header>
-<div class="layout"><div id="map"></div><aside>
-<div class="cards">
-<div class="card"><div class="muted">Đơn duy nhất</div><div class="num" id="orders">—</div></div>
-<div class="card"><div class="muted">Số ngày giao thực tế TB</div><div class="num" id="days">—</div></div>
-<div class="card"><div class="muted">Nhãn rủi ro trễ TB</div><div class="num" id="risk">—</div></div>
-<div class="card"><div class="muted">Tổng Sales</div><div class="num" id="sales">—</div></div>
+<header><h1>🌐 Bản đồ luồng quốc gia — DataCo Supply Chain</h1><a id="backAgent" href="/">← Quay lại Agent</a></header>
+<div class="banner">Lưu ý: DataCo không có trường quốc gia kho/seller xuất phát. Các đường vẽ <b>Customer Country → Order Country</b> là luồng đại diện theo metadata, không phải tuyến vận tải vật lý đã xác minh. <b>Late_delivery_risk</b> là nhãn sẵn có trong dữ liệu, không phải xác suất do model dự đoán.</div>
+<div class="app">
+  <aside id="panel">
+    <div class="brand">AI Logistics Agent</div>
+    <div class="subbrand">Phân tích luồng vận chuyển quốc tế từ DataCo — các chỉ số được tính trực tiếp từ tập dữ liệu đã chọn.</div>
+    <section class="sec">
+      <h3>Hiển thị bản đồ</h3>
+      <label class="f" for="mMetric">Chỉ số tô màu</label>
+      <select id="mMetric">
+        <option value="orders">Số đơn hàng</option>
+        <option value="late_risk_pct">Nhãn rủi ro giao trễ (%)</option>
+        <option value="avg_shipping_days">Ngày vận chuyển thực tế TB</option>
+        <option value="sales">Tổng giá trị sales</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="chkFlows" checked> Đường luồng giữa các quốc gia</label>
+      <label class="chk"><input type="checkbox" id="chkNodes" checked> Hiện điểm quốc gia</label>
+      <div class="hint" id="metricHint">Độ dày đường biểu thị số đơn; màu đường dựa trên chỉ số đang chọn.</div>
+    </section>
+    <section class="sec">
+      <h3>Bộ lọc dữ liệu</h3>
+      <div class="row"><div><label class="f" for="fFrom">Từ ngày</label><input type="date" id="fFrom"></div><div><label class="f" for="fTo">Đến ngày</label><input type="date" id="fTo"></div></div>
+      <label class="f" for="fMarket">Market</label><select id="fMarket"><option value="">Tất cả market</option></select>
+      <label class="f" for="fMode">Phương thức vận chuyển</label><select id="fMode"><option value="">Tất cả phương thức</option></select>
+      <label class="f" for="fOrigin">Customer Country (nguồn proxy)</label><select id="fOrigin"><option value="">Tất cả nguồn proxy</option></select>
+      <label class="f" for="fDest">Quốc gia đích</label><select id="fDest"><option value="">Tất cả quốc gia đích</option></select>
+      <label class="f" for="fMin">Số đơn tối thiểu mỗi luồng: <b id="fMinVal">20</b></label><input type="range" id="fMin" min="1" max="500" value="20">
+      <label class="f" for="fLimit">Số luồng trả về</label><select id="fLimit"><option value="20">20 luồng</option><option value="40" selected>40 luồng</option><option value="80">80 luồng</option><option value="120">120 luồng</option><option value="200">200 luồng</option></select>
+      <div class="btnrow"><button class="btn primary" id="fApply">Áp dụng lọc</button><button class="btn" id="fReset">Đặt lại</button></div>
+    </section>
+    <section class="sec">
+      <h3>Top 10 luồng nổi bật</h3>
+      <ul class="rank" id="rank"></ul>
+      <div class="hint" id="rankHint">Bấm một luồng để xem chi tiết và các đơn mẫu.</div>
+    </section>
+    <section class="sec" id="selectedSection">
+      <h3 id="selectedTitle">Chi tiết luồng</h3>
+      <div id="selectedContent" class="empty">Chọn một đường luồng hoặc mục xếp hạng để xem các chỉ số và đơn mẫu.</div>
+      <div class="btnrow"><button class="btn" id="askAgent" disabled>💬 Hỏi Agent</button><button class="btn" id="clearSelection" disabled>Bỏ chọn</button></div>
+    </section>
+    <section class="sec"><h3>Ghi chú</h3><div class="hint">Mỗi đơn có thể gồm nhiều dòng hàng; số đơn được đếm theo Order Id duy nhất. Vị trí là tọa độ đại diện của quốc gia. Không sử dụng mô hình XGBoost Olist cho DataCo.</div></section>
+  </aside>
+  <div id="mapWrap">
+    <button class="btn" id="panelToggle">☰ Bộ lọc</button>
+    <div id="map"></div>
+    <div id="loadingMsg">Đang tải dữ liệu DataCo…</div>
+    <div id="topStack">
+      <div class="ov" id="detailBar">
+        <button class="btn" id="dBack">← Tổng thể</button>
+        <button class="btn" id="dPlay">⏸ Tạm dừng</button>
+        <select id="dSpeed" title="Tốc độ hoạt ảnh"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+        <button class="btn primary" id="dAsk">Hỏi Agent</button>
+      </div>
+      <div class="ov" id="info"></div>
+    </div>
+    <div class="ov" id="legend"></div>
+  </div>
 </div>
-<div class="muted" id="note">Đang tải dữ liệu…</div>
-<div class="legend"><span><i class="swatch" style="background:#37c7a6"></i>Nhãn rủi ro thấp</span><span><i class="swatch" style="background:#efb34e"></i>Trung bình</span><span><i class="swatch" style="background:#ec6a68"></i>Cao</span></div>
-<h2>Luồng nổi bật</h2><ul id="flows" class="flows"></ul>
-<h2>Đơn mẫu của luồng đã chọn</h2><div id="selected" class="muted">Bấm một đường luồng để xem mẫu đơn.</div>
-<div id="orderRows"></div>
-</aside></div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
+/* DataCo map frontend; API contract matches src/dataco_map.py + src/api.py. */
 const $=id=>document.getElementById(id);
-const map=L.map('map',{worldCopyJump:true}).setView([20,0],2);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:7,attribution:'© OpenStreetMap contributors'}).addTo(map);
-const flowLayer=L.layerGroup().addTo(map),pointLayer=L.layerGroup().addTo(map);
-let filterState={},flowState=[],selectedFlow=null;
-
-async function requestJSON(url, options={}) {
-  const response = await fetch(url, {headers: {Accept: 'application/json'}, ...options});
-  const body = await response.text();
-  if (!body || !body.trim()) {
-    throw new Error(
-      'API ' + url + ' trả về nội dung rỗng (HTTP ' + response.status + '). ' +
-      'Hãy kiểm tra terminal Flask, xác nhận src/api.py đã cập nhật và khởi động lại server.'
-    );
-  }
-  let data;
-  try {
-    data = JSON.parse(body);
-  } catch (_) {
-    const preview = body.replace(/\s+/g, ' ').slice(0, 180);
-    throw new Error(
-      'API ' + url + ' không trả JSON hợp lệ (HTTP ' + response.status + '): ' + preview
-    );
-  }
-  if (!response.ok || (data && data.error)) {
-    const detail = data && data.error ? data.error : ('HTTP ' + response.status);
-    throw new Error('API ' + url + ': ' + detail);
-  }
+const params=new URLSearchParams(location.search);
+const EMBED=params.get('embed')==='1';
+if(EMBED)document.body.classList.add('embed');
+try{localStorage.setItem('ai_logistics_selected_dataset_v1','dataco')}catch(e){}
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtN=n=>Number(n||0).toLocaleString('vi-VN');
+const fmtMoney=n=>n==null?'—':Number(n).toLocaleString('vi-VN',{maximumFractionDigits:0});
+const fmtPct=n=>n==null?'—':Number(n).toLocaleString('vi-VN',{maximumFractionDigits:2})+'%';
+const fmtDays=n=>n==null?'—':Number(n).toLocaleString('vi-VN',{minimumFractionDigits:1,maximumFractionDigits:2})+' ngày';
+function setLoading(s){$('loadingMsg').textContent=s;$('loadingMsg').style.display='block';}
+function hideLoading(){$('loadingMsg').style.display='none';}
+function showError(text){$('loadingMsg').innerHTML='<span class="err">'+esc(text)+'</span>'; $('loadingMsg').style.display='block';}
+async function getJSON(url,opts){
+  const res=await fetch(url,{headers:{Accept:'application/json'},...(opts||{})});
+  const body=await res.text();
+  if(!body.trim())throw new Error(`${url} trả phản hồi rỗng (HTTP ${res.status}). Kiểm tra Flask đang chạy và đã cập nhật code mới.`);
+  let data;try{data=JSON.parse(body)}catch(e){throw new Error(`${url} không trả JSON hợp lệ (HTTP ${res.status}): ${body.replace(/\s+/g,' ').slice(0,180)}`)}
+  if(!res.ok||data.error)throw new Error(`${url}: ${data.error||('HTTP '+res.status)}`);
   return data;
 }
-
-function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function num(v,d=0){return v==null||v===''?'—':Number(v).toLocaleString('vi-VN',{maximumFractionDigits:d});}
-function query(){const q=new URLSearchParams();for(const [id,key] of [['start','start_date'],['end','end_date'],['market','market'],['mode','shipping_mode']])if($(id).value)q.set(key,$(id).value);return q;}
-function metricValue(f){return Number(f[$('metric').value]||0);}
-function lineColor(f){const r=Number(f.late_risk_pct||0);return r>=75?'#ec6a68':r>=40?'#efb34e':'#37c7a6';}
-function lineWeight(f){const vals=flowState.map(metricValue),v=metricValue(f),max=Math.max(...vals,1);return 1.5+5*Math.sqrt(Math.max(v,0)/max);}
-function arc(a,b){const latMid=(a.lat+b.lat)/2+(Math.abs(a.lng-b.lng)>100?10:0);return [[a.lat,a.lng],[latMid,(a.lng+b.lng)/2],[b.lat,b.lng]];}
-function showFlow(f){selectedFlow=f;$('selected').innerHTML='<b>'+esc(f.origin_country)+' → '+esc(f.destination_country)+'</b><br>'+num(f.orders)+' đơn · '+num(f.avg_actual_days,2)+' ngày TB · nhãn rủi ro '+num(f.late_risk_pct,2)+'%';$('orderRows').innerHTML='<p class="muted">Đang tải mẫu đơn…</p>';const q=query();q.set('from',f.origin_country);q.set('to',f.destination_country);q.set('limit','20');requestJSON('/api/dataco/map/orders?'+q).then(d=>{$('orderRows').innerHTML='<table><thead><tr><th>Order ID</th><th>Mode</th><th>Days</th><th>Risk</th></tr></thead><tbody>'+d.rows.map(r=>'<tr><td>'+esc(r.order_id)+'</td><td>'+esc(r.shipping_mode)+'</td><td>'+esc(r.days_for_shipping_real)+'</td><td>'+esc(r.late_delivery_risk)+'</td></tr>').join('')+'</tbody></table>';}).catch(e=>{$('orderRows').innerHTML='<p class="error">'+esc(e.message)+'</p>';});}
-function renderFlows(data){flowLayer.clearLayers();pointLayer.clearLayers();flowState=data.flows||[];for(const f of flowState){const pts=arc(f.origin,f.destination);L.polyline(pts,{color:lineColor(f),weight:lineWeight(f),opacity:.8}).bindTooltip('<b>'+esc(f.origin_country)+' → '+esc(f.destination_country)+'</b><br>Đơn: '+num(f.orders)+'<br>Ngày giao TB: '+num(f.avg_actual_days,2)+'<br>Nhãn risk: '+num(f.late_risk_pct,2)+'%').on('click',()=>showFlow(f)).addTo(flowLayer);L.circleMarker([f.origin.lat,f.origin.lng],{radius:3,color:'#fff',weight:1,fillColor:'#37c7a6',fillOpacity:.9}).bindTooltip(esc(f.origin_country)).addTo(pointLayer);L.circleMarker([f.destination.lat,f.destination.lng],{radius:3,color:'#fff',weight:1,fillColor:'#efb34e',fillOpacity:.9}).bindTooltip(esc(f.destination_country)).addTo(pointLayer);}
-$('flows').innerHTML=flowState.slice(0,30).map((f,i)=>'<li data-i="'+i+'"><b>'+esc(f.origin_country)+' → '+esc(f.destination_country)+'</b><br><span class="muted">'+num(f.orders)+' đơn · '+num(f.avg_actual_days,2)+' ngày TB · '+num(f.late_risk_pct,1)+'% risk-label</span></li>').join('')||'<li class="muted">Không có luồng đáp ứng bộ lọc.</li>';
-$('flows').querySelectorAll('li[data-i]').forEach(li=>li.onclick=()=>{const f=flowState[Number(li.dataset.i)];showFlow(f);map.fitBounds([[f.origin.lat,f.origin.lng],[f.destination.lat,f.destination.lng]],{padding:[50,50],maxZoom:5});});
-if(flowState.length){const coords=[];flowState.forEach(f=>coords.push([f.origin.lat,f.origin.lng],[f.destination.lat,f.destination.lng]));map.fitBounds(coords,{padding:[30,30],maxZoom:3});}}
-async function load(){ $('note').textContent='Đang truy vấn DataCo…';try{const q=query();const [summary,flows]=await Promise.all([requestJSON('/api/dataco/map/summary?'+q),requestJSON('/api/dataco/map/flows?'+(()=>{const x=new URLSearchParams(q);x.set('metric',$('metric').value);x.set('min_orders',$('minOrders').value||20);x.set('limit',120);return x})())]);$('orders').textContent=num(summary.orders);$('days').textContent=num(summary.avg_actual_days,2);$('risk').textContent=num(summary.late_risk_pct,2)+'%';$('sales').textContent=num(summary.sales,0);$('note').textContent=(flows.n_flows||0)+' luồng đang hiển thị. '+(flows.proxy_note||'')+' '+(flows.metric_note||'');renderFlows(flows);}catch(e){$('note').innerHTML='<span class="error">'+esc(e.message)+'</span>';}}
-async function init(){try{const d=await requestJSON('/api/dataco/map/filters');filterState=d;if(d.start_date)$('start').value=d.start_date;if(d.end_date)$('end').value=d.end_date;for(const v of d.markets||[])$('market').add(new Option(v,v));for(const v of d.shipping_modes||[])$('mode').add(new Option(v,v));$('note').textContent=d.map_note||'';await load();const p=new URLSearchParams(location.search);if(p.get('origin')&&p.get('destination')){const found=flowState.find(f=>f.origin_country===p.get('origin')&&f.destination_country===p.get('destination'));if(found)showFlow(found);}}catch(e){let detail=e.message;try{const health=await requestJSON('/api/dataco/map/health');detail+=' | Data file: '+(health.dataset_file_exists?'present ('+health.dataset_file_bytes+' bytes)':'missing')+'; path='+health.expected_path;}catch(healthError){detail+=' | Health endpoint also failed; backend code may be stale or Flask needs restarting.';}$('note').innerHTML='<span class="error">'+esc(detail)+'</span>';}}
-$('apply').onclick=load;$('metric').onchange=load;
-$('flows').addEventListener('click',()=>{});
-$('ask').onclick=()=>{const f=selectedFlow;const question=f?'Phân tích luồng DataCo từ '+f.origin_country+' đến '+f.destination_country+', gồm số đơn, số ngày giao thực tế và nhãn rủi ro giao trễ.':'Phân tích tổng quan bản đồ luồng quốc gia của DataCo và các luồng đáng chú ý.';if(window.parent!==window){window.parent.postMessage({type:'askAgent',text:question},location.origin);}else{location.href='/?ask='+encodeURIComponent(question);}};
-window.addEventListener('message',e=>{if(e.origin!==location.origin)return;const d=e.data||{};if(d.type==='showDatacoFlow'){const f=flowState.find(x=>(!d.origin_country||x.origin_country===d.origin_country)&&(!d.destination_country||x.destination_country===d.destination_country));if(f){if(d.metric)$('metric').value=d.metric;showFlow(f);map.fitBounds([[f.origin.lat,f.origin.lng],[f.destination.lat,f.destination.lng]],{padding:[50,50],maxZoom:5});}}});
+const map=L.map('map',{zoomControl:false,worldCopyJump:true}).setView([20,0],2);
+L.control.zoom({position:'bottomleft'}).addTo(map);
+const OSM='https://tile.openstreetmap.org/{z}/{x}/{y}.png', ATTR='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const dark=L.tileLayer(OSM,{maxZoom:18,attribution:ATTR,className:'tiles-dark'}),light=L.tileLayer(OSM,{maxZoom:18,attribution:ATTR});
+dark.addTo(map);L.control.layers({'Nền tối (OSM)':dark,'OpenStreetMap (sáng)':light},null,{position:'topright',collapsed:true}).addTo(map);
+const flowLayer=L.layerGroup().addTo(map),nodeLayer=L.layerGroup().addTo(map),detailLayer=L.layerGroup().addTo(map);
+const S={filters:null,summary:null,flows:[],metric:'orders',selected:null,detail:false,showFlows:true,showNodes:true,domain:[0,1],animation:{dots:[],playing:true,speed:1,last:null,clock:0,raf:null},loading:false};
+const METRICS={
+ orders:{label:'Số đơn hàng',key:'orders',unit:' đơn',palette:'blue'},
+ late_risk_pct:{label:'Nhãn rủi ro giao trễ',key:'late_risk_pct',unit:'%',palette:'risk'},
+ avg_shipping_days:{label:'Ngày vận chuyển thực tế TB',key:'avg_actual_days',unit:' ngày',palette:'risk'},
+ sales:{label:'Tổng giá trị sales',key:'sales',unit:' sales',palette:'blue'}
+};
+const PALETTES={risk:[[47,191,160],[232,162,61],[224,97,90]],blue:[[30,65,103],[48,133,196],[134,211,255]]};
+function rgb(v){return `rgb(${v[0]},${v[1]},${v[2]})`}
+function blend(pal,t){const a=PALETTES[pal],x=Math.max(0,Math.min(1,t))*(a.length-1),i=Math.min(Math.floor(x),a.length-2),f=x-i;return rgb(a[i].map((n,j)=>Math.round(n+(a[i+1][j]-n)*f)))}
+function val(f){return Number(f[METRICS[S.metric].key]||0)}
+function updateDomain(){const a=S.flows.map(val).filter(Number.isFinite).sort((x,y)=>x-y);if(!a.length){S.domain=[0,1];return}const lo=a[Math.floor((a.length-1)*.03)],hi=a[Math.ceil((a.length-1)*.97)];S.domain=[Math.min(0,lo),hi>lo?hi:lo+1]}
+function flowColor(f){const [lo,hi]=S.domain,t=(val(f)-lo)/(hi-lo||1);return blend(METRICS[S.metric].palette,t)}
+function flowWeight(f){const max=Math.max(...S.flows.map(x=>Number(x.orders)||0),1);return 1.1+6*Math.sqrt(Math.max(0,Number(f.orders)||0)/max)}
+function metricText(f){if(S.metric==='late_risk_pct')return fmtPct(f.late_risk_pct);if(S.metric==='avg_shipping_days')return fmtDays(f.avg_actual_days);if(S.metric==='sales')return fmtMoney(f.sales);return fmtN(f.orders)+' đơn'}
+function metricLegend(){const m=METRICS[S.metric],b=$('legend');b.innerHTML=`<div><b>${esc(m.label)}</b></div><div class="bar" style="background:linear-gradient(90deg,${PALETTES[m.palette].map(rgb).join(',')})"></div><div class="labs"><span>${S.metric==='orders'||S.metric==='sales'?'Ít':'Thấp'}</span><span>${S.metric==='orders'||S.metric==='sales'?'Nhiều':'Cao'}</span></div><div class="hint">Độ dày đường ∝ số đơn</div>`}
+function metricDescription(){const d={orders:'Màu xanh đậm → sáng theo số đơn trong luồng.',late_risk_pct:'Xanh = nhãn rủi ro thấp; đỏ = nhãn rủi ro cao.',avg_shipping_days:'Xanh = số ngày thấp; đỏ = số ngày cao.',sales:'Màu xanh đậm → sáng theo tổng sales.'};$('metricHint').textContent=d[S.metric]||''}
+function arcSegments(a,b,n=32,bend=.15){
+  let lon1=Number(a.lng),lon2=Number(b.lng),lat1=Number(a.lat),lat2=Number(b.lat);
+  let d=lon2-lon1;if(d>180)lon2-=360;else if(d< -180)lon2+=360;
+  const cx=(lon1+lon2)/2-(lat2-lat1)*bend,cy=(lat1+lat2)/2+(lon2-lon1)*bend,pts=[];
+  for(let i=0;i<=n;i++){const t=i/n,u=1-t;pts.push([u*u*lat1+2*u*t*cy+t*t*lat2,u*u*lon1+2*u*t*cx+t*t*lon2]);}
+  let offset=0;while(pts[0][1]+offset>180)offset-=360;while(pts[0][1]+offset< -180)offset+=360;
+  const out=[];let seg=[[pts[0][0],pts[0][1]+offset]];
+  for(let i=1;i<pts.length;i++){const prev=[pts[i-1][0],pts[i-1][1]+offset],cur=[pts[i][0],pts[i][1]+offset];
+    if(prev[1]<=180&&cur[1]>180){const t=(180-prev[1])/(cur[1]-prev[1]),lat=prev[0]+t*(cur[0]-prev[0]);seg.push([lat,180]);out.push(seg);offset-=360;seg=[[lat,-180],[cur[0],cur[1]-360]];}
+    else if(prev[1]>=-180&&cur[1]<-180){const t=(-180-prev[1])/(cur[1]-prev[1]),lat=prev[0]+t*(cur[0]-prev[0]);seg.push([lat,-180]);out.push(seg);offset+=360;seg=[[lat,180],[cur[0],cur[1]+360]];}
+    else seg.push(cur);
+  }if(seg.length>1)out.push(seg);return out;
+}
+function queryObject(includeCountries=true){const q=new URLSearchParams();for(const [id,key] of [['fFrom','start_date'],['fTo','end_date'],['fMarket','market'],['fMode','shipping_mode']]){const v=$(id).value;if(v)q.set(key,v)}if(includeCountries){if($('fOrigin').value)q.set('origin_country',$('fOrigin').value);if($('fDest').value)q.set('destination_country',$('fDest').value);q.set('min_orders',$('fMin').value||20);q.set('limit',$('fLimit').value||40);q.set('metric',S.metric)}return q}
+function syncUrl(){const q=new URLSearchParams();q.set('dataset','dataco');if(EMBED)q.set('embed','1');const values={fFrom:'start_date',fTo:'end_date',fMarket:'market',fMode:'shipping_mode',fOrigin:'origin_country',fDest:'destination_country',fMin:'min_orders',fLimit:'limit'};for(const [id,key]of Object.entries(values)){const v=$(id).value;if(v&&v!==String({fMin:'20',fLimit:'40'}[id]||''))q.set(key,v)}if(S.metric!=='orders')q.set('metric',S.metric);if(S.selected){q.set('origin',S.selected.origin_country);q.set('destination',S.selected.destination_country)}try{history.replaceState(null,'',location.pathname+'?'+q.toString())}catch(e){}}
+function flowHtml(f){return `<div class="title">${esc(f.origin_country)} → ${esc(f.destination_country)}</div><div><span class="k">Số đơn:</span> ${fmtN(f.orders)}</div><div><span class="k">Nhãn Late_delivery_risk:</span> ${fmtPct(f.late_risk_pct)}</div><div><span class="k">Vận chuyển thực tế TB:</span> ${fmtDays(f.avg_actual_days)} · <span class="k">Lịch dự kiến TB:</span> ${fmtDays(f.avg_scheduled_days)}</div><div><span class="k">Tổng sales:</span> ${fmtMoney(f.sales)}</div><div class="hint">Luồng proxy theo quốc gia; không phải tuyến kho/seller đã xác minh.</div>`}
+let hoverToken=0;function showInfo(html){$('info').innerHTML=html;$('info').style.display='block'}function hideInfo(){if(!S.detail)$('info').style.display='none'}
+function renderNodes(){nodeLayer.clearLayers();if(!S.showNodes)return;const nodes=new Map();for(const f of S.flows){for(const [k,p,role]of [[f.origin_country,f.origin,'customer'],[f.destination_country,f.destination,'order']]){if(!nodes.has(k))nodes.set(k,{key:k,point:p,orders:0,role});nodes.get(k).orders+=Number(f.orders)||0}}
+ const max=Math.max(...[...nodes.values()].map(n=>n.orders),1);for(const n of nodes.values()){const radius=3+7*Math.sqrt(n.orders/max);L.circleMarker([n.point.lat,n.point.lng],{radius,weight:1,color:'#e7f5ff',fillColor:n.role==='customer'?'#2fbfa0':'#e8a23d',fillOpacity:.72}).bindTooltip(`${esc(n.key)} · ${fmtN(n.orders)} luồng-đơn (theo các đường đang hiện)`).on('click',()=>{if(n.role==='customer')$('fOrigin').value=n.key;else $('fDest').value=n.key;reloadFlows()}).addTo(nodeLayer)}}
+function renderFlows(){flowLayer.clearLayers();if(!S.showFlows||S.detail){renderNodes();return}if(!S.flows.length){renderNodes();return}const coords=[];for(const f of S.flows){const color=flowColor(f),weight=flowWeight(f),line=L.polyline(arcSegments(f.origin,f.destination),{color,weight,opacity:.76,lineCap:'round'}).addTo(flowLayer);line.bindTooltip(`<b>${esc(f.origin_country)} → ${esc(f.destination_country)}</b><br>${fmtN(f.orders)} đơn · risk-label ${fmtPct(f.late_risk_pct)}<br>Giao thực tế TB ${fmtDays(f.avg_actual_days)}`,{sticky:true});line.on('mouseover',()=>{if(!S.detail)showInfo(flowHtml(f))});line.on('mouseout',()=>{hoverToken++;hideInfo()});line.on('click',()=>selectFlow(f));coords.push([f.origin.lat,f.origin.lng],[f.destination.lat,f.destination.lng])}renderNodes();if(coords.length&&!S.selected&&!params.get('origin')&&!params.get('destination'))map.fitBounds(coords,{padding:[35,35],maxZoom:3});}
+function renderRank(){const a=[...S.flows].sort((x,y)=>val(y)-val(x)).slice(0,10);$('rank').innerHTML=a.length?a.map((f,i)=>`<li data-i="${i}" class="${S.selected&&S.selected.origin_country===f.origin_country&&S.selected.destination_country===f.destination_country?'selected':''}"><span class="dot" style="background:${flowColor(f)}"></span><span><span class="nm">${esc(f.origin_country)} → ${esc(f.destination_country)}</span><br><span class="sub">${fmtN(f.orders)} đơn · nhãn risk ${fmtPct(f.late_risk_pct)} · ${Number(f.avg_actual_days||0).toFixed(1)} ngày</span></span><span class="val">${esc(metricText(f))}<br><span class="value-sub">${esc(METRICS[S.metric].label)}</span></span></li>`).join(''):'<li class="empty">Không có luồng phù hợp. Hãy hạ ngưỡng số đơn hoặc mở rộng bộ lọc.</li>';$('rank').querySelectorAll('li[data-i]').forEach(li=>li.onclick=()=>selectFlow(a[Number(li.dataset.i)]));$('rankHint').textContent=`Top ${a.length} trong ${S.flows.length} luồng đang hiển thị; xếp theo ${METRICS[S.metric].label.toLowerCase()}.`}
+function stopAnimation(){const a=S.animation;if(a.raf)cancelAnimationFrame(a.raf);a.raf=null;a.dots.forEach(d=>{try{detailLayer.removeLayer(d.marker)}catch(e){}});a.dots=[];a.last=null}
+function animLoop(ts){const a=S.animation;if(a.last==null)a.last=ts;const dt=Math.min(ts-a.last,100);a.last=ts;if(a.playing)a.clock+=dt*a.speed;for(const d of a.dots){const t=((a.clock+d.phase)%d.duration)/d.duration,i=t*(d.points.length-1),k=Math.floor(i),fr=i-k,p=d.points[k],q=d.points[Math.min(k+1,d.points.length-1)];d.marker.setLatLng([p[0]+(q[0]-p[0])*fr,p[1]+(q[1]-p[1])*fr])}if(a.dots.length)a.raf=requestAnimationFrame(animLoop);else a.raf=null}
+function buildAnimation(f,rows){stopAnimation();S.animation.playing=true;$('dPlay').textContent='⏸ Tạm dừng';S.animation.speed=+$('dSpeed').value||1;S.animation.clock=0;const pts=arcSegments(f.origin,f.destination,42,.16);const line=L.polyline(pts,{color:'#8fa7bd',weight:2.5,opacity:.75,dashArray:'6 5'}).addTo(detailLayer);line.bindTooltip(`${esc(f.origin_country)} → ${esc(f.destination_country)} · luồng proxy`);const flat=pts.flat();const sample=(rows||[]).slice(0,12);sample.forEach((r,i)=>{const late=Number(r.late_delivery_risk)===1;const d={points:flat,duration:Math.max(2500,Math.min(12000,(Number(r.days_for_shipping_real)||4)*1300)),phase:i*700,marker:L.circleMarker([f.origin.lat,f.origin.lng],{radius:4,color:'#ffffff',weight:1,fillColor:late?'#e0615a':'#2fbfa0',fillOpacity:1}).addTo(detailLayer)};d.marker.bindTooltip(`Order ${esc(r.order_id)} · late-risk label ${late?'1':'0'}`).on('click',()=>showOrderPopup(f,r));S.animation.dots.push(d)});S.animation.raf=requestAnimationFrame(animLoop);if(window.innerWidth<=760)$('panel').classList.remove('open')}
+function showOrderPopup(f,r){const late=Number(r.late_delivery_risk)===1;L.popup({maxWidth:300}).setLatLng([(f.origin.lat+f.destination.lat)/2,(f.origin.lng+f.destination.lng)/2]).setContent(`<b>Order ${esc(r.order_id)}</b><br>${esc(f.origin_country)} → ${esc(f.destination_country)}<br>Shipping mode: ${esc(r.shipping_mode)}<br>Actual: ${esc(r.days_for_shipping_real)} ngày · Scheduled: ${esc(r.days_for_shipment_scheduled)} ngày<br>Late risk label: <span style="color:${late?'#e0615a':'#2fbfa0'}">${late?'1':'0'}</span><br>Status: ${esc(r.delivery_status||r.order_status||'—')}<br>Sales: ${fmtMoney(r.sales)}<div style="color:#8b96a6;font-size:10px;margin-top:5px">Điểm/đường là đại diện quốc gia, không phải GPS đơn hàng.</div>`).openOn(map)}
+function selectedHtml(f,rows=[]){return `<div class="kpis"><div class="kpi"><span>Đơn theo luồng</span><b>${fmtN(f.orders)}</b></div><div class="kpi"><span>Nhãn rủi ro TB</span><b>${fmtPct(f.late_risk_pct)}</b></div><div class="kpi"><span>Actual TB</span><b>${fmtDays(f.avg_actual_days)}</b></div><div class="kpi"><span>Scheduled TB</span><b>${fmtDays(f.avg_scheduled_days)}</b></div><div class="kpi" style="grid-column:1/-1"><span>Tổng Sales</span><b>${fmtMoney(f.sales)}</b></div></div><div class="hint">${rows.length?`Đang vẽ ${rows.length} mẫu đơn có màu theo nhãn risk 0/1.`:'Đang tải các đơn mẫu…'} Các đường là luồng proxy Customer Country → Order Country.</div>`}
+async function selectFlow(f){S.selected=f;S.detail=true;stopAnimation();$('detailBar').style.display='flex';$('selectedTitle').textContent=`${f.origin_country} → ${f.destination_country}`;$('askAgent').disabled=false;$('clearSelection').disabled=false;$('selectedContent').innerHTML=selectedHtml(f);showInfo(flowHtml(f));renderRank();flowLayer.clearLayers();nodeLayer.clearLayers();metricLegend();syncUrl();
+ const q=queryObject(true);q.set('from',f.origin_country);q.set('to',f.destination_country);q.set('limit','40');
+ try{const d=await getJSON('/api/dataco/map/orders?'+q.toString());const rows=d.rows||[];$('selectedContent').innerHTML=selectedHtml(f,rows)+`<div class="table-wrap"><table><thead><tr><th>Order ID</th><th>Mode</th><th>Actual</th><th>Scheduled</th><th>Risk label</th><th>Status</th><th>Sales</th></tr></thead><tbody>${rows.map(r=>`<tr data-order="${esc(r.order_id)}"><td>${esc(r.order_id)}</td><td>${esc(r.shipping_mode)}</td><td>${esc(r.days_for_shipping_real)}</td><td>${esc(r.days_for_shipment_scheduled)}</td><td>${Number(r.late_delivery_risk)===1?'<span class="late">1</span>':'<span class="ok">0</span>'}</td><td>${esc(r.delivery_status||r.order_status||'—')}</td><td>${fmtMoney(r.sales)}</td></tr>`).join('')||'<tr><td colspan="7">Không có đơn mẫu.</td></tr>'}</tbody></table></div><div class="small">${esc(d.note||'')}</div>`;$('selectedContent').querySelectorAll('tr[data-order]').forEach((tr,i)=>tr.onclick=()=>showOrderPopup(f,rows[i]));buildAnimation(f,rows);map.fitBounds([[f.origin.lat,f.origin.lng],[f.destination.lat,f.destination.lng]],{padding:[70,70],maxZoom:4})}
+ catch(e){$('selectedContent').innerHTML=selectedHtml(f)+`<div class="err">Không tải được đơn mẫu: ${esc(e.message)}</div>`;buildAnimation(f,[]);map.fitBounds([[f.origin.lat,f.origin.lng],[f.destination.lat,f.destination.lng]],{padding:[70,70],maxZoom:4})}}
+function backToOverview(){stopAnimation();S.detail=false;S.selected=null;detailLayer.clearLayers();$('detailBar').style.display='none';$('info').style.display='none';$('selectedTitle').textContent='Chi tiết luồng';$('selectedContent').innerHTML='<div class="empty">Chọn một đường luồng hoặc mục xếp hạng để xem các chỉ số và đơn mẫu.</div>';$('askAgent').disabled=true;$('clearSelection').disabled=true;renderRank();renderFlows();syncUrl()}
+function renderSummary(){if(!S.summary)return;const s=S.summary;showInfo(`<div class="title">Tổng quan DataCo theo bộ lọc chung</div><div><span class="k">Số đơn duy nhất:</span> ${fmtN(s.orders)} · <span class="k">Dòng hàng:</span> ${fmtN(s.line_items)}</div><div><span class="k">Actual TB:</span> ${fmtDays(s.avg_actual_days)} · <span class="k">Scheduled TB:</span> ${fmtDays(s.avg_scheduled_days)}</div><div><span class="k">Nhãn risk TB:</span> ${fmtPct(s.late_risk_pct)} · <span class="k">Sales:</span> ${fmtMoney(s.sales)}</div><div class="hint">Tổng quan áp dụng ngày/market/phương thức; bộ lọc nguồn-đích và ngưỡng đơn áp dụng cho danh sách luồng.</div>`)}
+async function reloadFlows(){if(S.loading)return;S.loading=true;setLoading('Đang truy vấn DataCo…');$('fApply').disabled=true;try{const summaryQuery=queryObject(false),flowQuery=queryObject(true);flowQuery.set('metric',S.metric);const [summary,fd]=await Promise.all([getJSON('/api/dataco/map/summary?'+summaryQuery),getJSON('/api/dataco/map/flows?'+flowQuery)]);S.summary=summary;S.flows=fd.flows||[];updateDomain();metricLegend();metricDescription();renderRank();$('rankHint').textContent=(fd.proxy_note||'')+' '+(fd.metric_note||'');
+ if(S.detail&&S.selected){const found=S.flows.find(f=>f.origin_country===S.selected.origin_country&&f.destination_country===S.selected.destination_country);if(found){hideLoading();S.loading=false;$('fApply').disabled=false;await selectFlow(found);renderSummary();return}else{backToOverview()}}
+ renderFlows();renderSummary();syncUrl();hideLoading();if(S.flows.length){const points=[];for(const f of S.flows)points.push([f.origin.lat,f.origin.lng],[f.destination.lat,f.destination.lng]);if(!params.get('origin')&&!params.get('destination'))map.fitBounds(points,{padding:[28,28],maxZoom:3})}else{showInfo('<div class="title">Không có luồng phù hợp</div><div class="hint">Hãy giảm ngưỡng số đơn hoặc bỏ một số bộ lọc.</div>')}
+ }catch(e){showError(e.message);if(S.flows.length===0)try{const h=await getJSON('/api/dataco/map/health');$('loadingMsg').innerHTML+='<div class="hint">CSV: '+(h.dataset_file_exists?'có ('+fmtN(h.dataset_file_bytes)+' bytes)':'không tìm thấy')+'<br>Đường dẫn: '+esc(h.expected_path)+'</div>'}catch(_){}}finally{S.loading=false;$('fApply').disabled=false;setTimeout(()=>map.invalidateSize(),40)}}
+function optionList(id,items,placeholder){const el=$(id),old=el.value;el.innerHTML='';el.add(new Option(placeholder,''));for(const item of items||[])el.add(new Option(item,item));if([...el.options].some(o=>o.value===old))el.value=old}
+function fillFilters(d){S.filters=d;$('fFrom').value=params.get('start_date')||d.start_date||'';$('fTo').value=params.get('end_date')||d.end_date||'';optionList('fMarket',d.markets,'Tất cả market');optionList('fMode',d.shipping_modes,'Tất cả phương thức');optionList('fOrigin',d.origin_countries,'Tất cả nguồn proxy');optionList('fDest',d.destination_countries,'Tất cả quốc gia đích');for(const [key,id]of [['market','fMarket'],['shipping_mode','fMode'],['origin_country','fOrigin'],['destination_country','fDest']]){if(params.get(key))$(id).value=params.get(key)}if(params.get('origin'))$('fOrigin').value=params.get('origin');if(params.get('destination'))$('fDest').value=params.get('destination');if(params.get('metric')&&METRICS[params.get('metric')]){S.metric=params.get('metric');$('mMetric').value=S.metric}if(params.get('min_orders')){$('fMin').value=params.get('min_orders');$('fMinVal').textContent=params.get('min_orders')}if(params.get('limit'))$('fLimit').value=params.get('limit')}
+function syncFilterValue(){ $('fMinVal').textContent=$('fMin').value; }
+async function init(){try{setLoading('Đang tải bộ lọc và dữ liệu quốc gia…');const d=await getJSON('/api/dataco/map/filters');fillFilters(d);syncFilterValue();await reloadFlows();const origin=params.get('origin'),dest=params.get('destination');if(origin&&dest){const f=S.flows.find(x=>x.origin_country===origin&&x.destination_country===dest);if(f)selectFlow(f)} }catch(e){showError('Không khởi tạo được bản đồ DataCo: '+e.message);try{const h=await getJSON('/api/dataco/map/health');$('loadingMsg').innerHTML+='<div class="hint">CSV: '+(h.dataset_file_exists?'có':'không tìm thấy')+'<br>'+esc(h.expected_path)+'</div>'}catch(_){}}}
+$('mMetric').onchange=()=>{S.metric=$('mMetric').value;reloadFlows()};$('chkFlows').onchange=()=>{S.showFlows=$('chkFlows').checked;if(!S.showFlows)flowLayer.clearLayers();else if(!S.detail)renderFlows()};$('chkNodes').onchange=()=>{S.showNodes=$('chkNodes').checked;renderNodes()};$('fMin').oninput=syncFilterValue;$('fApply').onclick=reloadFlows;$('fLimit').onchange=reloadFlows;$('fReset').onclick=()=>{if(!S.filters)return;$('fFrom').value=S.filters.start_date||'';$('fTo').value=S.filters.end_date||'';['fMarket','fMode','fOrigin','fDest'].forEach(id=>$(id).value='');$('fMin').value=20;$('fMinVal').textContent='20';$('fLimit').value='40';$('mMetric').value='orders';S.metric='orders';backToOverview();reloadFlows()};$('dBack').onclick=backToOverview;$('dPlay').onclick=()=>{S.animation.playing=!S.animation.playing;$('dPlay').textContent=S.animation.playing?'⏸ Tạm dừng':'▶ Phát';if(S.animation.dots.length&&!S.animation.raf)S.animation.raf=requestAnimationFrame(animLoop)};$('dSpeed').onchange=()=>{S.animation.speed=+$('dSpeed').value||1};$('clearSelection').onclick=backToOverview;
+function askAgent(text){if(EMBED&&window.parent!==window)window.parent.postMessage({type:'askAgent',text},location.origin);else{try{localStorage.setItem('ai_logistics_selected_dataset_v1','dataco')}catch(e){}location.href='/?ask='+encodeURIComponent(text)}}
+function buildAskText(){const f=S.selected;if(!f)return 'Phân tích tổng quan luồng quốc gia của DataCo theo bộ lọc hiện tại, nêu rõ đây là luồng proxy Customer Country → Order Country.';return `Phân tích luồng proxy DataCo ${f.origin_country} → ${f.destination_country}: ${fmtN(f.orders)} đơn, nhãn Late_delivery_risk trung bình ${fmtPct(f.late_risk_pct)}, vận chuyển thực tế trung bình ${fmtDays(f.avg_actual_days)}, lịch dự kiến ${fmtDays(f.avg_scheduled_days)}, tổng sales ${fmtMoney(f.sales)}. Giải thích giới hạn của trường Customer Country → Order Country và không diễn giải nhãn sẵn có như xác suất do model dự đoán.`}
+$('askAgent').onclick=()=>askAgent(buildAskText());$('dAsk').onclick=()=>askAgent(buildAskText());$('panelToggle').onclick=()=>$('panel').classList.toggle('open');$('backAgent').href='/?dataset=dataco';
+window.addEventListener('message',e=>{if(e.origin!==location.origin)return;const d=e.data||{};if(d.type==='showDatacoFlow'){if(d.origin_country)$('fOrigin').value=d.origin_country;if(d.destination_country)$('fDest').value=d.destination_country;if(d.metric&&METRICS[d.metric]){$('mMetric').value=d.metric;S.metric=d.metric}reloadFlows().then(()=>{const f=S.flows.find(x=>(!d.origin_country||x.origin_country===d.origin_country)&&(!d.destination_country||x.destination_country===d.destination_country));if(f)selectFlow(f)})}});
+window.addEventListener('resize',()=>map.invalidateSize());
 init();
-</script></body></html>
+</script>
+</body>
+</html>
