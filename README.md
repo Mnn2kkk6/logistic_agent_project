@@ -1,244 +1,217 @@
-# AI Logistics Agent — Multi-dataset Logistics
+# AI Logistics Agent — Dự đoán rủi ro giao hàng & Phân tích chuỗi cung ứng
 
-AI Logistics Agent là một web application hỗ trợ phân tích logistics cho sàn thương mại điện tử. Dự án kết hợp **Machine Learning, LLM Function Calling, SQL analytics và bản đồ luồng đơn hàng** để trả lời câu hỏi nghiệp vụ từ dữ liệu Olist Brazilian E-Commerce.
+[English documentation](READMEENG.md) · [GitHub repository](https://github.com/Mnn2kkk6/logistic_agent_project)
 
-> **Datasets:** [Olist Brazilian E-Commerce](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) · DataCo Supply Chain files are placed in data_2/.
+AI Logistics Agent là ứng dụng web phân tích nghiệp vụ logistics, kết hợp **Machine Learning, AI Agent với tool/function calling, SQL analytics và bản đồ luồng đơn hàng**. Người dùng đặt câu hỏi bằng ngôn ngữ tự nhiên, chọn bộ dữ liệu cần phân tích; hệ thống tự định tuyến model ngôn ngữ ở backend và gọi các công cụ phù hợp.
 
-**English documentation:** [READMEENG.md](READMEENG.md)
+Dự án hiện hỗ trợ hai bộ dữ liệu: **Olist Brazilian E-Commerce** và **DataCo Supply Chain**. Hai bộ dữ liệu có pipeline phân tích riêng; model XGBoost và bản đồ bang Brazil của Olist không được dùng để suy diễn cho DataCo.
 
-## 1. Điểm nổi bật
+## Nội dung
 
-- **Late-delivery prediction (Olist):** dự đoán xác suất giao hàng trễ cho một đơn hàng mới bằng model đã huấn luyện trên Olist.
-- **Dataset selector:** chọn Olist hoặc DataCo Supply Chain ở sidebar; DataCo chỉ xuất hiện khi data_2/DataCoSupplyChainDataset.csv đã có.
-- **DataCo analytics:** tra cứu đơn, phân tích SQL và xếp hạng rủi ro giao trễ theo khu vực. DataCo chưa dùng model dự đoán hoặc bản đồ luồng riêng của Olist.
-- **Delivery-time prediction:** ước tính số ngày giao hàng thực tế.
-- **AI Agent:** người dùng hỏi bằng ngôn ngữ tự nhiên; LLM tự chọn tool phù hợp để lấy dữ liệu hoặc chạy phân tích.
-- **Automatic multi-provider LLM routing:** backend tự chọn model theo độ phức tạp câu hỏi, API key đã cấu hình và khả năng dự phòng; giao diện chat không hiển thị bộ chọn model.
-- **SQL analytics với DuckDB:** cho phép thực hiện các truy vấn `SELECT` / `WITH ... SELECT` trên dataset.
-- **Order lookup & operational statistics:** tra cứu đơn hàng, seller, bang khách hàng, ngành hàng và các nhóm rủi ro.
-- **Interactive flow map:** bản đồ luồng đơn hàng theo cặp `seller state → customer state`, có drill-down tới các đơn hàng mẫu và animation theo thời gian giao hàng.
-- **Optional Tavily integration:** có utility tìm kiếm web cho thông tin nằm ngoài phạm vi dữ liệu Olist.
-- **Dockerized deployment:** Flask app chạy trong container với healthcheck và multi-stage build.
+- [Tính năng chính](#tính-năng-chính)
+- [Giao diện](#giao-diện)
+- [Kiến trúc hệ thống](#kiến-trúc-hệ-thống)
+- [Bộ dữ liệu](#bộ-dữ-liệu)
+- [Machine Learning với Olist](#machine-learning-với-olist)
+- [AI Agent và tự động chọn LLM](#ai-agent-và-tự-động-chọn-llm)
+- [Bản đồ logistics](#bản-đồ-logistics)
+- [API](#api)
+- [Cài đặt và chạy local](#cài-đặt-và-chạy-local)
+- [Chạy bằng Docker](#chạy-bằng-docker)
+- [Pipeline và kiểm thử](#pipeline-và-kiểm-thử)
+- [Cấu trúc dự án](#cấu-trúc-dự-án)
+- [Giới hạn hiện tại](#giới-hạn-hiện-tại)
 
-## 2. Bài toán và dữ liệu
+## Tính năng chính
 
-Dự án sử dụng bộ Olist Brazilian E-Commerce gồm **9 bảng CSV gốc**, bao gồm orders, order items, payments, reviews, products, customers, sellers, geolocation và category translation.
+### Phân tích Olist E-commerce (Brazil)
 
-Pipeline chính:
+- Dự đoán xác suất giao hàng trễ và ước tính thời gian giao hàng theo ngày cho đơn hàng mới.
+- Tra cứu đơn hàng và thống kê theo bang, seller, ngành hàng; xếp hạng khu vực/ngành hàng có rủi ro cao.
+- Phân tích dữ liệu bằng DuckDB qua các truy vấn SQL chỉ đọc.
+- Phân tích funnel marketing, hiệu suất kênh, hồ sơ seller 360 độ và mối liên hệ giữa acquisition với logistics.
+- Bản đồ luồng đơn hàng theo cặp bang gửi → bang nhận, có bộ lọc thời gian/ngành hàng, drill-down và dự đoán tuyến cho đơn mới.
+
+### Phân tích DataCo Supply Chain (quốc tế)
+
+- Chọn DataCo từ bộ chọn dataset trên giao diện chat.
+- Tra cứu đơn, phân tích theo quốc gia/khu vực/thị trường/phương thức vận chuyển và tổng hợp thời gian vận chuyển.
+- Chạy truy vấn SQL chỉ đọc trên bảng đã chuẩn hóa tên cột là **dataco_orders**.
+- Bản đồ luồng quốc gia với các chỉ số số đơn, nhãn late-delivery risk có sẵn, thời gian vận chuyển trung bình và sales.
+- Có thể phân tích dữ liệu access log tùy chọn nếu file được đặt cục bộ; IP và URL thô không được đưa vào bảng mà agent truy vấn.
+
+### AI Agent và ứng dụng
+
+- Tool/function calling để kết nối câu hỏi ngôn ngữ tự nhiên với các hàm nghiệp vụ.
+- Tự động chọn model LLM ở backend theo loại tác vụ, API key đã cấu hình và thứ tự dự phòng.
+- Thử model/provider tiếp theo khi lần gọi trước gặp lỗi; giao diện chat chỉ cho chọn dataset, không bắt người dùng chọn model.
+- Rule-based local fallback xử lý một số mẫu câu Olist đã hỗ trợ mà không cần gọi API bên ngoài.
+- Flask web app, endpoint healthcheck và Docker multi-stage build.
+
+## Giao diện
+
+Ảnh chụp giao diện được lưu trong thư mục MyAgentDemo.
+
+### Chat và phân tích nghiệp vụ
+
+![AI Logistics Agent chat interface](MyAgentDemo/Home.png)
+
+### Bản đồ luồng đơn hàng Olist
+
+![Olist logistics flow map](MyAgentDemo/Map.png)
+
+## Kiến trúc hệ thống
 
 ~~~text
-Raw Olist CSV
-     |
-     v
-Load + Merge + Feature Engineering
-     |
-     +--> History features (seller/category/state-pair/customer-state)
-     |
-     v
-processed_dataset.csv
-     |
-     +-------------------+
-     |                   |
-     v                   v
-ML Training          DuckDB Analytics
-     |                   |
-     v                   v
-2 Production Models   Agent Tools / SQL
-     |                   |
-     +---------+---------+
-               |
-               v
-        Flask Web Application
-          |             |
-          v             v
-       Chat UI  <-->  Flow Map
+                  Web UI (Flask)
+                       |
+               Chọn dataset Olist/DataCo
+                       |
+                  Chat API /chat
+                       |
+              Automatic LLM Router
+               /                 \
+      Local rules (Olist)    Online LLM providers
+               \                 /
+                 Tool / Function Calling
+                          |
+          +---------------+----------------+
+          |                                |
+   Olist business tools              DataCo tools
+   XGBoost + DuckDB                  DuckDB + safe fields
+          |                                |
+   Olist state-flow map              Country-flow map
 ~~~
 
-### Các đặc trưng chính
+**Luồng xử lý Olist:** CSV gốc → gộp đơn và tạo đặc trưng → dataset đã xử lý → model XGBoost và các công cụ DuckDB → Flask UI/API.
 
-Các feature được thiết kế để mô phỏng quyết định **ngay tại thời điểm đặt hàng**, tránh dùng thông tin chỉ có sau khi đơn đã được giao.
+**Luồng xử lý DataCo:** DataCo CSV → chuẩn hóa encoding/tên cột và loại trường nhạy cảm khỏi bảng truy vấn → DuckDB analytics, tra cứu đơn và bản đồ quốc gia.
 
-Ví dụ:
+## Bộ dữ liệu
 
-- Khoảng cách seller → customer bằng Haversine.
-- Giá sản phẩm, phí vận chuyển, payment value, installments.
-- Số item, số seller/category khác nhau trong đơn.
-- Tổng khối lượng, thể tích, giá/item và các log-transformed features.
-- Bang seller, bang customer, category và payment type.
-- Thứ, tháng, giờ đặt hàng, weekend và peak season.
-- Historical features theo seller, category, state pair và customer state.
+### 1. Olist Brazilian E-Commerce
 
-**Targets:**
-- `is_late`: đơn có giao sau ngày dự kiến hay không.
-- `actual_delivery_days`: thời gian giao thực tế tính từ lúc mua đến lúc khách nhận hàng.
+Nguồn công khai: [Brazilian E-Commerce Public Dataset by Olist — Kaggle](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce).
 
-## 3. Machine Learning
+Các bảng gốc gồm đơn hàng, sản phẩm trong đơn, thanh toán, đánh giá, sản phẩm, khách hàng, seller, địa lý và bản dịch tên ngành hàng. Bản đã xử lý được lưu tại **data/processed_dataset.csv**; các file model và bảng tra cứu đặc trưng lịch sử nằm trong **models/**.
 
-Hai model production được huấn luyện bằng **XGBoost** trong `sklearn.Pipeline`, kết hợp tiền xử lý numeric/categorical features.
+Pipeline tạo đặc trưng như khoảng cách Haversine, giá trị đơn, phí vận chuyển, số sản phẩm/seller/ngành hàng, khối lượng/thể tích, thời điểm đặt đơn, bang gửi/nhận và thống kê lịch sử. Những đặc trưng lịch sử cần được kiểm tra cẩn thận khi huấn luyện lại để đảm bảo không sử dụng thông tin tương lai hoặc gây leakage.
 
-| Model | Mục tiêu | Kết quả test |
+### 2. DataCo Supply Chain
+
+Thư mục **data_2/** chứa:
+
+- **DataCoSupplyChainDataset.csv** — dữ liệu đơn hàng/line-item chính.
+- **DescriptionDataCoSupplyChain.csv** — mô tả trường dữ liệu.
+- **tokenized_access_logs.csv** — file tùy chọn, không bắt buộc; chỉ đặt vào máy local nếu cần phân tích lượt truy cập.
+
+Backend tạo bảng truy vấn **dataco_orders** và chuẩn hóa tên cột để phục vụ SQL. Các trường như tên, email, mật khẩu, địa chỉ đường phố, mã bưu chính và URL ảnh sản phẩm bị loại khỏi bảng mà agent sử dụng. Tuy vậy, đây không phải cam kết ẩn danh hóa toàn bộ dữ liệu nguồn; hãy kiểm tra quyền sử dụng và dữ liệu trước khi chia sẻ hoặc triển khai công khai.
+
+**Giới hạn diễn giải DataCo:** trường **late_delivery_risk** là nhãn có sẵn trong dataset, không phải xác suất được model ML của dự án dự đoán. Bản đồ dùng **Customer Country → Order Country** làm proxy từ các trường dữ liệu; không nên coi đó là tuyến đi từ kho hoặc seller đã xác minh.
+
+## Machine Learning với Olist
+
+Dự án có hai model XGBoost được lưu dưới dạng joblib và dùng qua pipeline tiền xử lý của scikit-learn:
+
+| Model | Mục tiêu | Chỉ số trong metadata hiện có |
 |---|---|---|
-| XGBClassifier | `is_late` | ROC-AUC **0.814** |
-| XGBRegressor | `actual_delivery_days` | MAE **4.449 ngày**, RMSE **7.28 ngày** |
+| XGBClassifier | Phân loại nguy cơ giao trễ (is_late) | ROC-AUC: **0.814** |
+| XGBRegressor | Ước tính số ngày giao hàng thực tế | MAE: **4.449 ngày** · RMSE: **7.28 ngày** |
 
-### Classifier: hai operating points
+Các con số trên được đọc từ **models/model_metadata.json**, không phải cam kết hiệu suất khi áp dụng cho dữ liệu ngoài Olist. Kết quả có thể thay đổi khi thay đổi dữ liệu, cách chia train/test hoặc pipeline.
 
-Do dữ liệu mất cân bằng (late-rate test khoảng **8.11%**), threshold có thể được điều chỉnh theo mục tiêu nghiệp vụ:
+### Chọn ngưỡng phân loại
+
+Tỷ lệ đơn giao trễ trong tập test được lưu trong metadata là khoảng **8.11%**. Ngưỡng phân loại được điều chỉnh theo mục tiêu nghiệp vụ:
 
 | Chế độ | Threshold | Precision | Recall | F1 |
 |---|---:|---:|---:|---:|
-| Recall-priority (deployed) | **0.38** | 0.193 | **0.750** | 0.307 |
-| F1-optimal | **0.6493** | 0.335 | 0.488 | **0.397** |
+| Ưu tiên Recall — ngưỡng đang lưu | 0.38 | 0.193 | 0.750 | 0.307 |
+| Ngưỡng tối ưu F1 trong metadata | 0.6493 | 0.335 | 0.488 | 0.397 |
 
-Cách tiếp cận này cho phép đánh đổi giữa **bắt được nhiều đơn có nguy cơ trễ** và **giảm số cảnh báo nhầm** thay vì cố định threshold = 0.5.
+Ngưỡng Recall cao giúp phát hiện nhiều đơn có nguy cơ hơn nhưng cũng tạo nhiều cảnh báo nhầm hơn. Cần chọn ngưỡng theo chi phí thực tế của bỏ sót đơn trễ và xử lý cảnh báo sai.
 
-Metadata của model được lưu tại:
+Các file model:
 
 ~~~text
-models/model_metadata.json
+models/
+├── late_delivery_classifier.joblib
+├── delivery_days_regressor.joblib
+├── history_lookup.json
+└── model_metadata.json
 ~~~
 
-## 4. AI Agent
+## AI Agent và tự động chọn LLM
 
-Luồng hội thoại:
+Ứng dụng dùng **src/model_router.py** để định tuyến câu hỏi. Giao diện cho phép chọn bộ dữ liệu; model LLM không phải lựa chọn hiển thị trong chat.
 
-~~~text
-User
-  |
-  v
-Flask Chat API
-  |
-  v
-Selected LLM Provider
-  |
-  +--> Function Calling
-  |       |
-  |       +--> get_order_info
-  |       +--> predict_new_order
-  |       +--> get_state_stats
-  |       +--> get_seller_stats
-  |       +--> get_category_stats
-  |       +--> top_risky_states
-  |       +--> top_risky_categories
-  |       +--> describe_dataset
-  |       +--> query_dataset_sql
-  |       +--> train_custom_model
-  |
-  v
-Tool result
-  |
-  v
-LLM final answer
-~~~
+Quy trình hiện tại:
 
-### Tool groups
+1. Với Olist, kiểm tra trước xem rule-based agent có nhận diện được mẫu câu hỗ trợ hay không.
+2. Nếu cần LLM trực tuyến, phân loại tác vụ ở mức quy tắc thành nhóm nhanh hoặc suy luận.
+3. Lọc các model theo API key đã cấu hình, thử theo thứ tự ưu tiên và chuyển sang provider khác khi có lỗi.
+4. Giới hạn số lần thử bằng **MODEL_ROUTER_MAX_ATTEMPTS** (tối đa 8 trong code hiện tại).
 
-**Prediction**
-- `predict_new_order`
+Các tích hợp trong code gồm **Google Gemini, OpenAI, xAI, Groq và OpenRouter**, cùng local rule-based fallback. Model/provider có thể thay đổi theo cấu hình, API key, quota và khả năng truy cập tại thời điểm chạy; không đảm bảo mọi model luôn hoạt động hoặc có gói miễn phí.
 
-Dùng các thông tin có thể biết khi đặt hàng để trả về rủi ro giao trễ và số ngày giao dự kiến. Khi có `seller_id`, agent có thể bổ sung historical performance của seller.
+### Nhóm công cụ tiêu biểu
 
-**Lookup / statistics**
-- `get_order_info`
-- `get_state_stats`
-- `get_seller_stats`
-- `get_category_stats`
-- `top_risky_states`
-- `top_risky_categories`
+**Olist:** tra cứu đơn hàng; dự đoán đơn mới; thống kê theo state/seller/category; xếp hạng khu vực rủi ro; mô tả schema; truy vấn SQL; xem luồng trên bản đồ; các công cụ marketing.
 
-**General analytics**
-- `describe_dataset`
-- `query_dataset_sql`
-- `train_custom_model`
-- `show_flow_on_map`
+**DataCo:** mô tả dataset; tra cứu đơn; thống kê khu vực/quốc gia; so sánh shipping mode; truy vấn SQL trên bảng đã làm sạch; thống kê access log tùy chọn; xem luồng quốc gia.
 
-`query_dataset_sql` chỉ cho phép các truy vấn đọc dữ liệu và có thể truy cập bảng `orders` đã tổng hợp cùng các bảng raw cần thiết cho các bài toán join chi tiết.
+Truy vấn SQL được giới hạn số dòng trả về. Với DataCo, agent chỉ được truy vấn bảng **dataco_orders** và bị chặn nhiều từ khóa/hàm có khả năng thay đổi dữ liệu hoặc đọc file tùy ý. Đây là lớp bảo vệ ở mức ứng dụng, không thay thế việc kiểm soát quyền truy cập, xác thực và bảo vệ hạ tầng khi triển khai production.
 
-## 5. Multi-provider LLM
+## Bản đồ logistics
 
-Web UI cho phép người dùng chọn bộ dữ liệu. Model LLM được tự động chọn ở backend; bảng dưới đây chỉ dùng để mô tả các model đã khai báo trong cấu hình dự án:
+### Olist: luồng đơn hàng giữa các bang Brazil
 
-| Provider | Models in current project |
-|---|---|
-| Google Gemini | Gemini 2.5 Flash, 2.5 Flash-Lite, 2.0 Flash |
-| OpenAI | GPT-4o Mini, GPT-4o |
-| xAI | Grok 4 Fast, Grok 4.6 |
-| Groq | GPT-OSS 120B, GPT-OSS 20B |
-| Local | Rule-based offline fallback |
+Mở **/map**. Bản đồ hỗ trợ:
 
-Lịch sử hội thoại được lưu theo dạng **canonical chat history**, không phụ thuộc provider. Nhờ đó có thể đổi model giữa các lượt chat mà không phải lưu format tool-call riêng của từng API.
+- Luồng từ seller state đến customer state; độ dày và màu sắc thể hiện chỉ số đang chọn.
+- Các chỉ số như số đơn, tỷ lệ giao trễ lịch sử, rủi ro dự đoán và thời gian giao trung bình.
+- Bộ lọc tháng, ngành hàng và số đơn tối thiểu; lớp choropleth theo bang.
+- Xem các đơn mẫu, xu hướng theo tháng và dự đoán cho đơn mới giữa hai bang.
+- Điều hướng từ chat agent đến luồng được yêu cầu khi công cụ hỗ trợ.
 
-## 6. Interactive Logistics Flow Map
+Tọa độ địa lý dùng để tổng hợp và minh họa khu vực, không phải GPS hoặc theo dõi xe theo thời gian thực. Rủi ro dự đoán trên một luồng là kết quả cho đơn đại diện theo các giá trị đầu vào tổng hợp, không tương đương trực tiếp với tỷ lệ trễ lịch sử.
 
-Mở:
+### DataCo: luồng quốc gia
 
-```
-http://localhost:5000/map
-```
+Mở **/map?dataset=dataco**. Bản đồ hỗ trợ lọc theo ngày, market và shipping mode; chọn chỉ số hiển thị và drill-down để xem đơn mẫu.
 
-Bản đồ dùng **Leaflet** (nền tối CARTO hoặc OpenStreetMap, đổi được ở góc phải) và gồm:
+**Lưu ý:** đây là hình ảnh hóa quan hệ giữa trường quốc gia khách hàng và quốc gia đích theo dữ liệu nguồn, không xác nhận tuyến đường vận tải vật lý.
 
-- **Luồng theo bang:** các cung cong `seller_state → customer_state`; độ dày = số đơn, màu = chỉ số đang chọn.
-- **Bốn chỉ số tô màu:** tỉ lệ trễ lịch sử, **rủi ro dự đoán (XGBoost)**, thời gian giao trung bình, số đơn. Legend tự co giãn theo dữ liệu.
-- **Choropleth theo bang** (nhận hàng hoặc gửi hàng) từ GeoJSON 27 bang (`data/brazil_states.geojson`). Bấm vào một bang để chỉ xem các luồng của bang đó.
-- **Bộ lọc:** khoảng tháng, ngành hàng, số đơn tối thiểu mỗi luồng.
-- **Top 10 luồng nổi bật** theo chỉ số đang chọn (bấm để drill-down).
-- **Hover:** tooltip số liệu + sparkline late rate theo tháng của luồng.
-- **Drill-down:** 40 đơn mẫu lấy **phân tầng** (có cả đơn trễ lẫn đúng hẹn), chấm chạy dọc cung cong với tốc độ tỉ lệ nghịch số ngày giao thực tế; có nút Tạm dừng và chọn tốc độ 0.5×–4×.
-- **Dự đoán đơn mới:** chọn bang seller/khách, ngành hàng, giá, phí ship, cân nặng → vẽ tuyến lên bản đồ kèm xác suất trễ, mức rủi ro và số ngày dự kiến.
-- **Kết nối với AI Agent:** tool `show_flow_on_map` — khi bạn hỏi "cho tôi xem luồng SP → RJ trên bản đồ", giao diện chat tự mở bản đồ cạnh khung chat và zoom tới luồng đó. Chiều ngược lại, nút **"Hỏi agent"** trong màn hình chi tiết gửi sẵn câu hỏi vào chat.
-- Có thể mở thẳng bằng URL: `/map?from=SP&to=RJ&mode=pred` (`mode`: `late` | `pred` | `days` | `orders`).
+## API
 
-> **Lưu ý:** vị trí trên bản đồ là **tọa độ trung bình theo khu vực/zip code**, dùng để minh họa luồng logistics, không phải GPS thời gian thực. "Rủi ro dự đoán" là kết quả model cho **đơn điển hình** của luồng (khoảng cách, giá, ship, cân nặng, hạn giao lấy theo trung vị/trung bình thật của luồng), nên không phải con số so sánh trực tiếp 1-1 với late rate lịch sử.
+Ứng dụng chạy mặc định tại **http://localhost:5000**.
 
-Kết quả tổng hợp được cache trong bộ nhớ và được tính sẵn khi server khởi động (tắt bằng `MAP_WARMUP=0`).
+### API chung và Olist
 
-### Map endpoints
+| Method | Endpoint | Mục đích |
+|---|---|---|
+| GET | / | Giao diện chat |
+| GET | /health | Healthcheck |
+| GET | /models | Thông tin model phục vụ chẩn đoán |
+| GET | /datasets | Dataset hiện có để chọn trên UI |
+| POST | /chat | Gửi câu hỏi; JSON gồm message và dataset_id |
+| POST | /chat/restore | Khôi phục lịch sử chat cho session |
+| POST | /chat/reset | Xóa lịch sử chat của dataset trong session |
+| POST | /predict | Dự đoán cho đơn mới theo input Olist |
+| GET | /order/{order_id} | Tra cứu đơn Olist |
+| GET | /stats/state/{state} | Thống kê theo bang |
+| GET | /stats/seller/{seller_id} | Thống kê theo seller |
+| GET | /stats/category/{category} | Thống kê theo ngành hàng |
+| GET | /stats/top-risky-states?n=5 | Bang có tỷ lệ trễ cao |
+| GET | /stats/top-risky-categories?n=5 | Ngành hàng có tỷ lệ trễ cao |
+| GET | /marketing/funnel | Tóm tắt funnel marketing |
+| GET | /marketing/channels | Hiệu suất kênh marketing |
+| GET | /seller/{seller_id}/360 | Seller 360 |
+| GET | /marketing/acquisition-logistics | Acquisition và logistics |
 
-```
-GET  /map
-GET  /api/map/filters
-GET  /api/map/flows?start=2017-01&end=2018-08&category=bed_bath_table&min_orders=5
-GET  /api/map/sample?from=SP&to=RJ&limit=40[&start=&end=&category=]
-GET  /api/map/trend?from=SP&to=RJ[&start=&end=&category=]
-POST /api/map/predict-route
-GET  /api/map/geojson
-```
-
-## 7. Tavily Web Search
-
-Project có utility `web_search` sử dụng **Tavily** để lấy thông tin từ web cho các câu hỏi nằm ngoài dataset Olist, ví dụ kiến thức logistics hoặc thông tin bên ngoài dữ liệu nội bộ.
-
-API key được cấu hình bằng:
+### API bản đồ Olist
 
 ~~~text
-TAVILY_API_KEY=
-~~~
-
-Trong production, nên ưu tiên dữ liệu nội bộ trước khi tìm kiếm web vì dữ liệu Olist có tính nhất quán với các tool analytics của project.
-
-## 8. Web API
-
-Các endpoint chính:
-
-~~~text
-GET  /                         Web chat UI
-GET  /health                   Healthcheck
-GET  /models                   Available LLM models + key status
-
-GET  /datasets                 Available datasets for the chat selector
-POST /chat                     Chat with automatic model routing
-POST /chat/reset               Reset current conversation
-
-POST /predict                  Predict a new order
-GET  /order/<order_id>         Lookup an order
-
-GET  /stats/state/<state>
-GET  /stats/seller/<seller_id>
-GET  /stats/category/<category>
-GET  /stats/top-risky-states?n=5
-GET  /stats/top-risky-categories?n=5
-
 GET  /map
 GET  /api/map/filters
 GET  /api/map/flows
@@ -248,38 +221,194 @@ POST /api/map/predict-route
 GET  /api/map/geojson
 ~~~
 
-## 9. Project structure
+### API bản đồ DataCo
+
+~~~text
+GET  /api/dataco/map/health
+GET  /api/dataco/map/filters
+GET  /api/dataco/map/summary
+GET  /api/dataco/map/flows
+GET  /api/dataco/map/orders?from=Brazil&to=Mexico
+~~~
+
+Ví dụ gọi chat:
+
+~~~bash
+curl -X POST http://localhost:5000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Top 5 bang có tỷ lệ giao trễ cao nhất","dataset_id":"olist"}'
+~~~
+
+Trên Windows PowerShell, có thể dùng giao diện web để thử API thay vì chạy lệnh curl ở trên.
+
+## Cài đặt và chạy local
+
+### Yêu cầu
+
+- Git
+- Python 3.12 được khuyến nghị để gần với môi trường Docker
+- Tài nguyên đủ để đọc các CSV; lần đầu sử dụng DataCo có thể tốn thời gian để chuẩn hóa và nạp dữ liệu vào DuckDB
+- API key của ít nhất một LLM provider trực tuyến nếu cần hỏi các câu không được rule-based agent Olist xử lý. DataCo cần model trực tuyến.
+
+### 1. Tải source
+
+~~~bash
+git clone https://github.com/Mnn2kkk6/logistic_agent_project.git
+cd logistic_agent_project
+python -m venv .venv
+~~~
+
+Kích hoạt môi trường ảo:
+
+~~~powershell
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+~~~
+
+~~~bash
+# macOS / Linux
+source .venv/bin/activate
+~~~
+
+### 2. Cài thư viện
+
+Cách cài linh hoạt cho môi trường local:
+
+~~~bash
+pip install -r requirements.txt
+~~~
+
+Để dùng phiên bản thư viện đã pin tương ứng với image Docker, dùng Python 3.12 và:
+
+~~~bash
+pip install -r requirements-docker.txt
+~~~
+
+### 3. Cấu hình API key và chạy app
+
+Ví dụ Windows PowerShell:
+
+~~~powershell
+$env:GEMINI_API_KEY="your-gemini-api-key"
+$env:FLASK_SECRET_KEY="replace-with-a-random-secret"
+python -m src.api
+~~~
+
+Có thể cấu hình các biến tương ứng cho OpenAI, xAI, Groq hoặc OpenRouter nếu muốn dùng những provider đó. **Chạy Python trực tiếp không tự động nạp file .env**; hãy đặt biến môi trường trong terminal hoặc cấu hình môi trường của IDE. Docker Compose tự đọc file .env để nội suy biến.
+
+Mở:
+
+- Chat: http://localhost:5000
+- Healthcheck: http://localhost:5000/health
+- Dataset list: http://localhost:5000/datasets
+- Bản đồ Olist: http://localhost:5000/map
+- Bản đồ DataCo: http://localhost:5000/map?dataset=dataco
+
+Các biến thường dùng:
+
+| Biến | Mục đích |
+|---|---|
+| GEMINI_API_KEY hoặc GOOGLE_API_KEY | Gemini |
+| OPENAI_API_KEY | OpenAI |
+| XAI_API_KEY | xAI |
+| GROQ_API_KEY | Groq |
+| OPENROUTER_API_KEY | OpenRouter |
+| TAVILY_API_KEY | Tìm kiếm web tùy chọn |
+| CARTO_API_KEY | Tùy chọn cho nền bản đồ CARTO |
+| FLASK_SECRET_KEY | Ký Flask session |
+| MODEL_ROUTER_FAST_MODEL | Ưu tiên model cho tác vụ nhanh |
+| MODEL_ROUTER_REASONING_MODEL | Ưu tiên model cho tác vụ suy luận |
+| MODEL_ROUTER_MAX_ATTEMPTS | Giới hạn số lượt thử model |
+
+Không commit API key hoặc file **.env** chứa secret lên GitHub.
+
+## Chạy bằng Docker
+
+Docker là cách được khuyến nghị để chạy trong môi trường gần với cấu hình đã định nghĩa trong repo.
+
+1. Tạo file **.env** từ **.env.example** và điền API key cần thiết.
+2. Build và chạy:
+
+~~~bash
+docker compose up --build -d
+~~~
+
+3. Kiểm tra trạng thái:
+
+~~~bash
+docker compose ps
+docker compose logs -f logistics-agent
+~~~
+
+4. Truy cập **http://localhost:5000**. Healthcheck là **http://localhost:5000/health**.
+
+Dừng ứng dụng:
+
+~~~bash
+docker compose down
+~~~
+
+Dockerfile dùng multi-stage build, runtime chạy bằng user không phải root và có healthcheck. Compose mount **data/** và **models/** ở chế độ chỉ đọc. Thư mục **data_2/** được copy vào image trong bước build, vì vậy cần build lại image khi muốn cập nhật file DataCo bên trong container.
+
+## Pipeline và kiểm thử
+
+Để tạo lại dataset Olist đã xử lý từ CSV gốc:
+
+~~~bash
+python -m src.data_pipeline
+~~~
+
+Huấn luyện lại model phân loại và hồi quy:
+
+~~~bash
+python -m src.train_models
+~~~
+
+Có thể huấn luyện riêng:
+
+~~~bash
+python -m src.train_models classifier
+python -m src.train_models regressor
+~~~
+
+Đặt đầy đủ CSV Olist gốc vào **data/** trước khi chạy pipeline. Các model và dataset đã xử lý hiện được lưu sẵn trong repository để thuận tiện chạy thử; chỉ chạy training khi cần tái tạo hoặc thay đổi pipeline.
+
+Một bộ kiểm tra DataCo có tại **tests/test_dataco_map.py**. Chạy bằng:
+
+~~~bash
+python -m unittest discover -s tests -p "test_dataco_map.py" -v
+~~~
+
+Workflow GitHub Actions **.github/workflows/dataco-backend-tests.yml** có các bước compile Python, kiểm tra cú pháp JavaScript của bản đồ DataCo và chạy các test tương ứng khi trigger theo cấu hình workflow.
+
+## Cấu trúc dự án
 
 ~~~text
 .
-├── data/
-│   ├── olist_*_dataset.csv
-│   ├── product_category_name_translation.csv
-│   ├── brazil_states.geojson
-│   └── processed_dataset.csv
-│
-├── models/
-│   ├── late_delivery_classifier.joblib
-│   ├── delivery_days_regressor.joblib
-│   ├── history_lookup.json
-│   └── model_metadata.json
-│
+├── data/                     # CSV Olist, dataset đã xử lý, GeoJSON Brazil
+├── data_2/                   # CSV DataCo và mô tả dữ liệu
+├── models/                   # XGBoost models, metadata, history lookup
 ├── src/
-│   ├── api.py
-│   ├── agent.py
-│   ├── agent_gemini.py
-│   ├── providers.py
-│   ├── tool_schemas.py
-│   ├── tools.py
-│   ├── data_pipeline.py
-│   ├── history_features.py
-│   ├── train_models.py
-│   └── set_recall_threshold.py
-│
+│   ├── api.py                # Flask UI/API và route bản đồ
+│   ├── agent.py              # Agent orchestration
+│   ├── agent_gemini.py       # Tích hợp Gemini
+│   ├── providers.py           # Provider adapters và tool calling
+│   ├── model_router.py        # Tự chọn LLM và fallback
+│   ├── dataset_registry.py    # Dataset selector/availability
+│   ├── tools.py               # Olist tools, ML inference, DuckDB, map
+│   ├── dataco_tools.py        # DataCo analytics và truy vấn an toàn
+│   ├── dataco_map.py          # Tổng hợp luồng quốc gia
+│   ├── dataco_country_coords.py
+│   ├── marketing_tools.py     # Phân tích marketing và seller
+│   ├── data_pipeline.py      # Tiền xử lý Olist
+│   ├── history_features.py   # Đặc trưng lịch sử
+│   └── train_models.py       # Huấn luyện model
 ├── templates/
-│   ├── index.html
-│   └── map.html
-│
+│   ├── index.html            # Giao diện chat
+│   ├── map.html              # Bản đồ Olist
+│   └── dataco_map.html       # Bản đồ DataCo
+├── tests/
+│   └── test_dataco_map.py
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
@@ -289,142 +418,15 @@ GET  /api/map/geojson
 └── READMEENG.md
 ~~~
 
-## 10. Chạy local
+## Giới hạn hiện tại
 
-### 10.1. Cài dependencies
+- Chat history được lưu trong RAM của tiến trình Flask. Khi restart, lịch sử trong RAM mất; triển khai nhiều instance nên chuyển sang Redis/database và bổ sung cơ chế session phù hợp.
+- Chất lượng và khả năng gọi tool phụ thuộc provider, API key, quota, mạng và model còn khả dụng.
+- Rule-based local fallback chỉ xử lý các mẫu câu đã được lập trình và hiện chỉ dành cho Olist; DataCo yêu cầu provider trực tuyến.
+- Dataset Olist và DataCo là dữ liệu lịch sử/phục vụ phân tích, không phải feed logistics thời gian thực.
+- Tọa độ bản đồ phục vụ minh họa dữ liệu tổng hợp; không nên dùng như GPS hay bằng chứng về tuyến vận chuyển thực tế.
+- Trước khi dùng trong vận hành thật, cần kiểm định model trên dữ liệu mới, đánh giá data leakage, bổ sung authentication/authorization, quản lý secret, logging/monitoring và lưu lịch sử bền vững.
 
-~~~bash
-pip install -r requirements.txt
-~~~
+## Công nghệ
 
-### 10.2. Cấu hình environment
-
-Copy:
-
-~~~text
-.env.example
-~~~
-
-thành:
-
-~~~text
-.env
-~~~
-
-Sau đó điền API key cần dùng.
-
-> Không commit `.env` thật lên GitHub.
-
-### 10.3. Chạy Flask
-
-PowerShell:
-
-~~~powershell
-$env:GEMINI_API_KEY="your-key"
-python -m src.api
-~~~
-
-Mở:
-
-~~~text
-http://localhost:5000
-~~~
-
-Bản đồ:
-
-~~~text
-http://localhost:5000/map
-~~~
-
-### 10.4. Chạy data pipeline / training
-
-Tạo lại processed dataset:
-
-~~~bash
-python -m src.data_pipeline
-~~~
-
-Train classifier + regressor:
-
-~~~bash
-python -m src.train_models
-~~~
-
-Có thể train riêng:
-
-~~~bash
-python -m src.train_models classifier
-python -m src.train_models regressor
-~~~
-
-## 11. Chạy bằng Docker
-
-Build và start:
-
-~~~bash
-docker compose up --build
-~~~
-
-Kiểm tra:
-
-~~~bash
-docker compose ps
-~~~
-
-Healthcheck:
-
-~~~text
-http://localhost:5000/health
-~~~
-
-Ứng dụng:
-
-~~~text
-http://localhost:5000
-~~~
-
-Bản đồ:
-
-~~~text
-http://localhost:5000/map
-~~~
-
-Docker sử dụng multi-stage build: dependencies được cài ở builder stage, sau đó runtime image chỉ giữ môi trường cần thiết để chạy app.
-
-Dataset và model được mount read-only trong Compose để có thể thay thế data/model mà không cần rebuild image.
-
-## 12. Một vài câu hỏi mẫu
-
-~~~text
-Top 5 bang có tỉ lệ giao hàng trễ cao nhất?
-
-Đơn hàng từ seller ở SP giao đến khách ở RJ cách khoảng 900km có rủi ro trễ không?
-
-Seller này có hiệu suất giao hàng tốt không?
-
-So sánh tỉ lệ giao trễ theo tháng.
-
-Ngành hàng nào có thời gian giao hàng cao nhất?
-
-Cho tôi xem luồng đơn hàng từ SP đến RJ trên bản đồ.
-~~~
-
-## 13. Hạn chế và hướng phát triển
-
-- Dữ liệu Olist là dữ liệu lịch sử; bản đồ chỉ mang tính trực quan hóa.
-- Chat history hiện lưu trong RAM của Flask process, phù hợp cho local/demo; triển khai nhiều instance nên chuyển sang Redis hoặc database.
-- Các provider cần API key riêng; local fallback chỉ hỗ trợ một số mẫu câu cố định.
-- Có thể mở rộng thêm seller recommendation, route-aware prediction, model monitoring, drift detection và long-term conversation memory.
-- Có thể cải thiện classifier theo chi phí nghiệp vụ thực tế bằng threshold tuning hoặc cost-sensitive learning.
-
----
-
-**Stack:** Python, Pandas, scikit-learn, XGBoost, DuckDB, Flask, Google GenAI, OpenAI API, xAI API, Groq, Tavily, Leaflet, Docker
-
-## DataCo quốc tế: Agent analytics và bản đồ luồng quốc gia
-
-- Chọn DataCo Supply Chain ở sidebar để hỏi agent về đơn hàng, số ngày vận chuyển thực tế/dự kiến, quốc gia đích, khu vực, market, shipping mode và nhãn rủi ro có sẵn.
-- Công cụ SQL chỉ đọc trên bảng `dataco_orders`, giới hạn kết quả, và không đưa tên, email, mật khẩu, địa chỉ đường phố, mã bưu chính hoặc URL ảnh vào bảng agent.
-- Nếu `data_2/tokenized_access_logs.csv` có sẵn cục bộ, agent có thể thống kê lượt truy cập theo sản phẩm/danh mục/giờ. IP và URL không được đưa vào bảng truy vấn; không commit file log thô khi chưa đánh giá rủi ro nhận dạng.
-- Mở bản đồ riêng bằng `/map?dataset=dataco`. API: `GET /api/dataco/map/filters`, `/api/dataco/map/summary`, `/api/dataco/map/flows`, `/api/dataco/map/orders`.
-- Lưu ý dữ liệu: `Customer Country → Order Country` chỉ là proxy từ hai trường hiện có, không phải tuyến kho/seller đã xác minh. `Late_delivery_risk` là nhãn quan sát trong dataset, không phải dự đoán ML. Bản đồ Olist tại `/map` giữ nguyên riêng biệt.
+**Python · Pandas · NumPy · scikit-learn · XGBoost · DuckDB · Flask · Google GenAI · OpenAI API · xAI · Groq · OpenRouter · Tavily · Leaflet · Docker Compose**
