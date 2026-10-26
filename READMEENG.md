@@ -1,241 +1,217 @@
-# AI Logistics Agent — Olist E-commerce
+# AI Logistics Agent — Delivery Risk Prediction & Supply Chain Analytics
 
-AI Logistics Agent is a logistics analytics web application for e-commerce operations. The project combines **Machine Learning, LLM Function Calling, SQL analytics, and an interactive order-flow map** to answer operational questions from the Olist Brazilian E-Commerce dataset.
+[Tiếng Việt](README.md) · [GitHub repository](https://github.com/Mnn2kkk6/logistic_agent_project)
 
-> **Dataset:** [Brazilian E-Commerce Public Dataset by Olist](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)
+AI Logistics Agent is a logistics analytics web application that combines **Machine Learning, an LLM-powered tool-calling agent, SQL analytics, and interactive order-flow maps**. Users ask operational questions in natural language and select a dataset; the backend routes the language model and invokes the relevant business tools.
 
-**Vietnamese documentation:** [README.md](README.md)
+The project supports two datasets: **Olist Brazilian E-Commerce** and **DataCo Supply Chain**. They use separate analytics paths. The Olist-trained XGBoost models and Brazil state map are not used to make predictions for DataCo.
 
-## 1. Highlights
+## Contents
 
-- **Late-delivery prediction:** estimate the probability that a new order will be delivered late.
-- **Delivery-time prediction:** estimate the actual delivery time in days.
-- **AI Agent:** users ask natural-language questions; the selected LLM chooses the appropriate business tool.
-- **Multi-provider LLM:** Gemini, OpenAI, xAI/Grok, Groq, and a local rule-based fallback.
-- **DuckDB analytics:** run read-only `SELECT` / `WITH ... SELECT` queries across the dataset.
-- **Operational lookup and statistics:** order lookup, seller/state/category performance, and risk rankings.
-- **Interactive flow map:** visualize seller-state → customer-state flows, drill into sample orders, and animate deliveries.
-- **Optional Tavily integration:** web search utility for information outside the Olist dataset.
-- **Dockerized deployment:** Flask service with healthcheck and multi-stage Docker build.
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Architecture](#architecture)
+- [Datasets](#datasets)
+- [Machine Learning on Olist](#machine-learning-on-olist)
+- [AI Agent and Automatic LLM Routing](#ai-agent-and-automatic-llm-routing)
+- [Logistics Maps](#logistics-maps)
+- [API Reference](#api-reference)
+- [Local Setup](#local-setup)
+- [Docker Deployment](#docker-deployment)
+- [Data Pipeline and Tests](#data-pipeline-and-tests)
+- [Project Structure](#project-structure)
+- [Current Limitations](#current-limitations)
 
-## 2. Problem and Data
+## Features
 
-The project uses **9 original Olist CSV tables** covering orders, order items, payments, reviews, products, customers, sellers, geolocation, and category translation.
+### Olist E-commerce analytics (Brazil)
 
-Main pipeline:
+- Predict late-delivery probability and estimate actual delivery time in days for a new order.
+- Look up orders, analyze performance by state/seller/category, and rank high-risk states and categories.
+- Perform read-only SQL analytics with DuckDB.
+- Analyze marketing funnels, channel performance, seller 360 profiles, and acquisition-to-logistics performance.
+- Explore seller-state → customer-state order flows, filter by time/category, drill down into sample orders, and predict a route for a new order.
+
+### DataCo Supply Chain analytics (global)
+
+- Select DataCo from the dataset selector in the chat interface.
+- Look up orders and analyze countries, regions, markets, shipping modes, and shipping-time aggregates.
+- Query the normalized **dataco_orders** table with read-only SQL.
+- Explore country flows by order count, the dataset's existing late-delivery-risk label, average shipping time, and sales.
+- Optionally analyze access-log aggregates if a local file is provided. Raw IP and URL fields are not materialized into the agent-queryable table.
+
+### Agent and application
+
+- Tool/function calling connects natural-language requests to business functions.
+- The backend automatically selects an LLM based on task type, configured API keys, and fallback ordering.
+- The UI asks users to select a dataset, not a model. The router can try another provider when an earlier call fails.
+- A local rule-based fallback handles certain supported Olist question patterns without an external API call.
+- Flask web application, health endpoint, and multi-stage Docker build.
+
+## Screenshots
+
+Screenshots are stored in the MyAgentDemo directory.
+
+### Chat and analytics
+
+![AI Logistics Agent chat interface](MyAgentDemo/Home.png)
+
+### Olist order-flow map
+
+![Olist logistics flow map](MyAgentDemo/Map.png)
+
+## Architecture
 
 ~~~text
-Raw Olist CSV
-     |
-     v
-Load + Merge + Feature Engineering
-     |
-     +--> Historical features
-     |
-     v
-processed_dataset.csv
-     |
-     +-------------------+
-     |                   |
-     v                   v
-ML Training          DuckDB Analytics
-     |                   |
-     v                   v
-2 Production Models   Agent Tools / SQL
-     |                   |
-     +---------+---------+
-               |
-               v
-        Flask Web Application
-          |             |
-          v             v
-       Chat UI  <-->  Flow Map
+                   Flask Web UI
+                        |
+              Select Olist or DataCo
+                        |
+                   Chat API /chat
+                        |
+              Automatic LLM Router
+                /                \
+     Local rules (Olist)     Online LLM providers
+                \                /
+                 Tool / Function Calling
+                           |
+           +---------------+----------------+
+           |                                |
+    Olist business tools              DataCo tools
+    XGBoost + DuckDB                  DuckDB + sanitized fields
+           |                                |
+    Brazil state-flow map             Country-flow map
 ~~~
 
-### Main features
+**Olist path:** source CSV files → order-level aggregation and feature engineering → processed dataset → XGBoost models and DuckDB tools → Flask UI/API.
 
-The feature set is designed around information available **at order placement time**, avoiding post-delivery information leakage.
+**DataCo path:** DataCo CSV → encoding/column-name normalization and exclusion of selected sensitive fields from the queryable table → DuckDB analytics, order lookup, and country-flow map.
 
-Examples:
+## Datasets
 
-- Haversine distance between seller and customer.
-- Product price, freight, payment value, and installments.
-- Number of items, distinct sellers, and distinct categories.
-- Total weight, volume, price-per-item, and log-transformed variables.
-- Seller state, customer state, category, and payment type.
-- Purchase weekday, month, hour, weekend and peak-season indicators.
-- Historical features for seller, category, state pair, and customer state.
+### 1. Olist Brazilian E-Commerce
 
-**Targets:**
-- `is_late`: whether the order was delivered after the estimated delivery date.
-- `actual_delivery_days`: elapsed days from purchase to customer delivery.
+Public source: [Brazilian E-Commerce Public Dataset by Olist — Kaggle](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce).
 
-## 3. Machine Learning
+The source tables cover orders, order items, payments, reviews, products, customers, sellers, geolocation, and category translation. The processed dataset is stored at **data/processed_dataset.csv**. Trained models and historical lookup features are in **models/**.
 
-Two production models are trained with **XGBoost** inside `sklearn.Pipeline`, using separate numeric and categorical preprocessing.
+The pipeline builds features such as Haversine distance, order value, freight, item/seller/category counts, weight/volume, purchase time, seller/customer states, and historical statistics. Historical features should be carefully reviewed whenever retraining to ensure that future information or other forms of leakage do not enter the training process.
 
-| Model | Target | Test result |
+### 2. DataCo Supply Chain
+
+The **data_2/** directory contains:
+
+- **DataCoSupplyChainDataset.csv** — main order/line-item dataset.
+- **DescriptionDataCoSupplyChain.csv** — field descriptions.
+- **tokenized_access_logs.csv** — optional local-only file for access-event analytics; not required to run the core application.
+
+The backend creates a queryable **dataco_orders** table and normalizes column names. Fields such as customer names, email, password, street address, postal code, and product-image URL are excluded from the agent's queryable table. This is not a guarantee that the entire source dataset is anonymous; review data permissions and sensitive content before sharing or deploying publicly.
+
+**DataCo interpretation limits:** **late_delivery_risk** is a pre-existing dataset label, not a probability predicted by this project's ML model. The map uses **Customer Country → Order Country** as a proxy derived from available fields; it should not be interpreted as a verified warehouse/seller origin or a validated physical shipping route.
+
+## Machine Learning on Olist
+
+The project includes two XGBoost models saved as joblib artifacts and used with scikit-learn preprocessing pipelines.
+
+| Model | Target | Result in current metadata |
 |---|---|---|
-| XGBClassifier | `is_late` | ROC-AUC **0.814** |
-| XGBRegressor | `actual_delivery_days` | MAE **4.449 days**, RMSE **7.28 days** |
+| XGBClassifier | Late-delivery classification (is_late) | ROC-AUC: **0.814** |
+| XGBRegressor | Actual delivery duration in days | MAE: **4.449 days** · RMSE: **7.28 days** |
 
-### Classifier operating points
+These values come from **models/model_metadata.json**. They are not a performance guarantee on data outside Olist. Results may change when the dataset, train/test split, or pipeline changes.
 
-The test late-rate is about **8.11%**, so the classifier threshold can be selected according to business priorities:
+### Classification threshold
+
+The test late-delivery rate recorded in the metadata is approximately **8.11%**. The threshold can be adjusted to match operational priorities:
 
 | Mode | Threshold | Precision | Recall | F1 |
 |---|---:|---:|---:|---:|
-| Recall-priority (deployed) | **0.38** | 0.193 | **0.750** | 0.307 |
-| F1-optimal | **0.6493** | 0.335 | 0.488 | **0.397** |
+| Recall-priority — currently saved threshold | 0.38 | 0.193 | 0.750 | 0.307 |
+| F1-optimal threshold in metadata | 0.6493 | 0.335 | 0.488 | 0.397 |
 
-This allows the system to trade off **catching more risky orders** against **reducing false alarms**, instead of always using threshold = 0.5.
+A recall-oriented threshold can identify more risky orders, but it also creates more false alarms. Production thresholds should reflect the actual cost of missed late deliveries versus unnecessary interventions.
 
-Model metadata is stored in:
+Model files:
 
 ~~~text
-models/model_metadata.json
+models/
+├── late_delivery_classifier.joblib
+├── delivery_days_regressor.joblib
+├── history_lookup.json
+└── model_metadata.json
 ~~~
 
-## 4. AI Agent
+## AI Agent and Automatic LLM Routing
 
-Conversation flow:
+The backend routing logic is implemented in **src/model_router.py**. Users select a dataset; model selection is handled behind the scenes.
 
-~~~text
-User
-  |
-  v
-Flask Chat API
-  |
-  v
-Selected LLM Provider
-  |
-  +--> Function Calling
-  |       |
-  |       +--> get_order_info
-  |       +--> predict_new_order
-  |       +--> get_state_stats
-  |       +--> get_seller_stats
-  |       +--> get_category_stats
-  |       +--> top_risky_states
-  |       +--> top_risky_categories
-  |       +--> describe_dataset
-  |       +--> query_dataset_sql
-  |       +--> train_custom_model
-  |
-  v
-Tool result
-  |
-  v
-LLM final answer
-~~~
+Current routing behavior:
 
-### Tool groups
+1. For Olist, first check whether the rule-based agent recognizes a supported question pattern.
+2. If an online LLM is needed, classify the task using lightweight rules as fast or reasoning-oriented.
+3. Filter candidates by configured API keys, try them in priority order, and fall back to another provider after a failure.
+4. Limit attempts using **MODEL_ROUTER_MAX_ATTEMPTS** (the code caps it at 8).
 
-**Prediction**
-- `predict_new_order`
+The provider integrations in the code include **Google Gemini, OpenAI, xAI, Groq, and OpenRouter**, plus a local rule-based fallback. Actual availability depends on configuration, API keys, quotas, network access, and provider/model availability. The README does not imply that every model is always available or free.
 
-Uses information available at order placement to return late-delivery risk and expected delivery days. When `seller_id` is known, historical seller performance can also be incorporated.
+### Representative tool groups
 
-**Lookup / statistics**
-- `get_order_info`
-- `get_state_stats`
-- `get_seller_stats`
-- `get_category_stats`
-- `top_risky_states`
-- `top_risky_categories`
+**Olist:** order lookup; new-order prediction; statistics by state/seller/category; high-risk rankings; dataset schema description; SQL queries; map-flow display; marketing analytics.
 
-**General analytics**
-- `describe_dataset`
-- `query_dataset_sql`
-- `train_custom_model`
-- `show_flow_on_map`
+**DataCo:** dataset description; order lookup; region/country statistics; shipping-mode comparisons; read-only SQL over the sanitized table; optional access-log aggregates; country-flow map.
 
-`query_dataset_sql` is restricted to read-only queries and can access both the aggregated `orders` table and the raw tables needed for detailed joins.
+SQL outputs are capped. For DataCo, agent queries must use **dataco_orders**, and several keywords/functions that could modify data or read arbitrary files are blocked. These are application-level safeguards; they do not replace authentication, authorization, and infrastructure security in production.
 
-## 5. Multi-provider LLM
+## Logistics Maps
 
-The web UI lets the user select a model directly:
+### Olist: Brazil state-to-state order flows
 
-| Provider | Models in current project |
-|---|---|
-| Google Gemini | Gemini 2.5 Flash, 2.5 Flash-Lite, 2.0 Flash |
-| OpenAI | GPT-4o Mini, GPT-4o |
-| xAI | Grok 4 Fast, Grok 4.6 |
-| Groq | GPT-OSS 120B, GPT-OSS 20B |
-| Local | Rule-based offline fallback |
+Open **/map**. Features include:
 
-Conversation history is stored in a **canonical provider-independent format**, so the user can switch models between turns without storing provider-specific tool-call formats.
+- Arcs from seller state to customer state; line width and color represent the selected metric.
+- Metrics such as order count, historical late rate, model-based risk, and average delivery duration.
+- Month, category, and minimum-order filters, plus a state choropleth layer.
+- Sample-order drill-down, monthly trend view, and new-order route prediction between two states.
+- Navigation from the chat agent to a requested flow when the relevant tool is invoked.
 
-## 6. Interactive Logistics Flow Map
+Map coordinates aggregate or illustrate geographic areas; they are not GPS tracking or real-time vehicle locations. Model-based risk on a flow represents an estimate for a representative order created from aggregated inputs and is not directly comparable to the historical late rate.
 
-Open:
+### DataCo: country flows
 
-```
-http://localhost:5000/map
-```
+Open **/map?dataset=dataco**. The map supports date, market, and shipping-mode filters, selectable metrics, and sample-order drill-down.
 
-The map is built with **Leaflet** (CARTO dark basemap or OpenStreetMap, switchable at the top right) and provides:
+**Important:** it visualizes the relationship between customer-country and destination-country fields in the source data; it does not verify a physical transport route.
 
-- **State-to-state flows:** curved arcs `seller_state → customer_state`; thickness = order volume, colour = the selected metric.
-- **Four colour metrics:** historical late rate, **predicted risk (XGBoost)**, average delivery days, order count. The legend adapts to the data.
-- **State choropleth** (by destination or origin state) from a 27-state GeoJSON (`data/brazil_states.geojson`). Click a state to show only its flows.
-- **Filters:** month range, product category, minimum orders per flow.
-- **Top 10 highlighted flows** for the selected metric (click to drill down).
-- **Hover:** tooltip with stats plus a monthly late-rate sparkline.
-- **Drill-down:** 40 **stratified** sample orders (both late and on-time), dots move along the arcs at a speed inversely proportional to real delivery days; pause button and 0.5×–4× speed control.
-- **New-order prediction:** pick seller/customer states, category, price, freight, weight → the route is drawn with late probability, risk level and expected delivery days.
-- **Agent integration:** the `show_flow_on_map` tool — ask "show me the SP → RJ flow on the map" and the chat UI opens the map beside the conversation and zooms to that flow. In the other direction, the **"Ask agent"** button in the drill-down view sends a ready-made question to the chat.
-- Deep links: `/map?from=SP&to=RJ&mode=pred` (`mode`: `late` | `pred` | `days` | `orders`).
+## API Reference
 
-> **Note:** map coordinates are **area/ZIP-code averages used for visualization**, not real-time GPS. "Predicted risk" is the model output for a **typical order** of each flow (distance, price, freight, weight and estimated days taken from the flow's real median/mean), so it is not directly comparable 1-to-1 with the historical late rate.
+The application listens on **http://localhost:5000** by default.
 
-Aggregates are cached in memory and pre-computed at server start (disable with `MAP_WARMUP=0`).
+### Core and Olist endpoints
 
-### Map endpoints
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | / | Chat interface |
+| GET | /health | Health check |
+| GET | /models | Model information for diagnostics |
+| GET | /datasets | Available datasets for the UI selector |
+| POST | /chat | Send a message; JSON includes message and dataset_id |
+| POST | /chat/restore | Restore chat history for a session |
+| POST | /chat/reset | Clear the session's history for a dataset |
+| POST | /predict | Predict a new Olist order from input features |
+| GET | /order/{order_id} | Look up an Olist order |
+| GET | /stats/state/{state} | State-level statistics |
+| GET | /stats/seller/{seller_id} | Seller-level statistics |
+| GET | /stats/category/{category} | Category-level statistics |
+| GET | /stats/top-risky-states?n=5 | States with high late rates |
+| GET | /stats/top-risky-categories?n=5 | Categories with high late rates |
+| GET | /marketing/funnel | Marketing funnel summary |
+| GET | /marketing/channels | Marketing channel performance |
+| GET | /seller/{seller_id}/360 | Seller 360 view |
+| GET | /marketing/acquisition-logistics | Acquisition and logistics performance |
 
-```
-GET  /map
-GET  /api/map/filters
-GET  /api/map/flows?start=2017-01&end=2018-08&category=bed_bath_table&min_orders=5
-GET  /api/map/sample?from=SP&to=RJ&limit=40[&start=&end=&category=]
-GET  /api/map/trend?from=SP&to=RJ[&start=&end=&category=]
-POST /api/map/predict-route
-GET  /api/map/geojson
-```
-
-## 7. Tavily Web Search
-
-The project includes a `web_search` utility backed by **Tavily** for information outside the Olist dataset, such as general logistics knowledge or external company information.
-
-Configure:
+### Olist map endpoints
 
 ~~~text
-TAVILY_API_KEY=
-~~~
-
-For production usage, internal Olist data should remain the first source for questions that can be answered by the project's analytics tools.
-
-## 8. Web API
-
-Main endpoints:
-
-~~~text
-GET  /                         Web chat UI
-GET  /health                   Healthcheck
-GET  /models                   Available LLM models + key status
-
-POST /chat                     Chat with selected model
-POST /chat/reset               Reset current conversation
-
-POST /predict                  Predict a new order
-GET  /order/<order_id>         Lookup an order
-
-GET  /stats/state/<state>
-GET  /stats/seller/<seller_id>
-GET  /stats/category/<category>
-GET  /stats/top-risky-states?n=5
-GET  /stats/top-risky-categories?n=5
-
 GET  /map
 GET  /api/map/filters
 GET  /api/map/flows
@@ -245,38 +221,192 @@ POST /api/map/predict-route
 GET  /api/map/geojson
 ~~~
 
-## 9. Project structure
+### DataCo map endpoints
+
+~~~text
+GET  /api/dataco/map/health
+GET  /api/dataco/map/filters
+GET  /api/dataco/map/summary
+GET  /api/dataco/map/flows
+GET  /api/dataco/map/orders?from=Brazil&to=Mexico
+~~~
+
+Example chat request:
+
+~~~bash
+curl -X POST http://localhost:5000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Which five Brazilian states have the highest late-delivery rate?","dataset_id":"olist"}'
+~~~
+
+## Local Setup
+
+### Prerequisites
+
+- Git
+- Python 3.12 is recommended to match the Docker environment
+- Enough memory/disk bandwidth to read the CSV datasets; the first DataCo load may take time while the source is normalized and loaded into DuckDB
+- An API key for at least one online LLM provider for questions not handled by Olist's rule-based agent. DataCo requires an online model.
+
+### 1. Clone the repository
+
+~~~bash
+git clone https://github.com/Mnn2kkk6/logistic_agent_project.git
+cd logistic_agent_project
+python -m venv .venv
+~~~
+
+Activate the virtual environment:
+
+~~~powershell
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+~~~
+
+~~~bash
+# macOS / Linux
+source .venv/bin/activate
+~~~
+
+### 2. Install dependencies
+
+Flexible local dependencies:
+
+~~~bash
+pip install -r requirements.txt
+~~~
+
+To use the dependency versions pinned for the Docker image, use Python 3.12 and install:
+
+~~~bash
+pip install -r requirements-docker.txt
+~~~
+
+### 3. Configure an API key and run the app
+
+Example for Windows PowerShell:
+
+~~~powershell
+$env:GEMINI_API_KEY="your-gemini-api-key"
+$env:FLASK_SECRET_KEY="replace-with-a-random-secret"
+python -m src.api
+~~~
+
+You can set the corresponding environment variables for OpenAI, xAI, Groq, or OpenRouter if you want to use those providers. **Running Python directly does not automatically load the .env file**; set variables in your terminal or IDE environment. Docker Compose automatically reads **.env** for variable interpolation.
+
+Open:
+
+- Chat: http://localhost:5000
+- Health check: http://localhost:5000/health
+- Dataset list: http://localhost:5000/datasets
+- Olist map: http://localhost:5000/map
+- DataCo map: http://localhost:5000/map?dataset=dataco
+
+Common environment variables:
+
+| Variable | Purpose |
+|---|---|
+| GEMINI_API_KEY or GOOGLE_API_KEY | Gemini |
+| OPENAI_API_KEY | OpenAI |
+| XAI_API_KEY | xAI |
+| GROQ_API_KEY | Groq |
+| OPENROUTER_API_KEY | OpenRouter |
+| TAVILY_API_KEY | Optional web search |
+| CARTO_API_KEY | Optional CARTO map tiles |
+| FLASK_SECRET_KEY | Flask session signing |
+| MODEL_ROUTER_FAST_MODEL | Preferred model for fast tasks |
+| MODEL_ROUTER_REASONING_MODEL | Preferred model for reasoning tasks |
+| MODEL_ROUTER_MAX_ATTEMPTS | Maximum model attempts |
+
+Do not commit API keys or a secret-filled **.env** file to GitHub.
+
+## Docker Deployment
+
+Docker is the recommended route for an environment close to the project's defined runtime configuration.
+
+1. Create **.env** from **.env.example** and fill in the API keys you need.
+2. Build and start the service:
+
+~~~bash
+docker compose up --build -d
+~~~
+
+3. Check its status and logs:
+
+~~~bash
+docker compose ps
+docker compose logs -f logistics-agent
+~~~
+
+4. Open **http://localhost:5000**. Health check: **http://localhost:5000/health**.
+
+Stop the service:
+
+~~~bash
+docker compose down
+~~~
+
+The Dockerfile uses a multi-stage build, runs the runtime process as a non-root user, and defines a health check. Compose mounts **data/** and **models/** as read-only volumes. **data_2/** is copied into the image during build, so rebuild the image to update DataCo files inside the container.
+
+## Data Pipeline and Tests
+
+Rebuild the processed Olist dataset from the original CSVs:
+
+~~~bash
+python -m src.data_pipeline
+~~~
+
+Train the classifier and regressor:
+
+~~~bash
+python -m src.train_models
+~~~
+
+Train an individual model:
+
+~~~bash
+python -m src.train_models classifier
+python -m src.train_models regressor
+~~~
+
+Place the required original Olist CSV files in **data/** before rebuilding the pipeline. The processed dataset and trained model artifacts are already stored in the repository for convenience; rerun training only when recreating or changing the pipeline.
+
+DataCo tests are located at **tests/test_dataco_map.py**. Run:
+
+~~~bash
+python -m unittest discover -s tests -p "test_dataco_map.py" -v
+~~~
+
+The GitHub Actions workflow **.github/workflows/dataco-backend-tests.yml** includes Python compilation, DataCo map JavaScript syntax validation, and the corresponding unit tests when triggered by its configured workflow conditions.
+
+## Project Structure
 
 ~~~text
 .
-├── data/
-│   ├── olist_*_dataset.csv
-│   ├── product_category_name_translation.csv
-│   ├── brazil_states.geojson
-│   └── processed_dataset.csv
-│
-├── models/
-│   ├── late_delivery_classifier.joblib
-│   ├── delivery_days_regressor.joblib
-│   ├── history_lookup.json
-│   └── model_metadata.json
-│
+├── data/                     # Olist CSVs, processed dataset, Brazil GeoJSON
+├── data_2/                   # DataCo CSV and field documentation
+├── models/                   # XGBoost models, metadata, history lookup
 ├── src/
-│   ├── api.py
-│   ├── agent.py
-│   ├── agent_gemini.py
-│   ├── providers.py
-│   ├── tool_schemas.py
-│   ├── tools.py
-│   ├── data_pipeline.py
-│   ├── history_features.py
-│   ├── train_models.py
-│   └── set_recall_threshold.py
-│
+│   ├── api.py                # Flask UI/API and map routes
+│   ├── agent.py              # Agent orchestration
+│   ├── agent_gemini.py       # Gemini integration
+│   ├── providers.py           # Provider adapters and tool calling
+│   ├── model_router.py        # Automatic LLM selection and fallback
+│   ├── dataset_registry.py    # Dataset availability and selector
+│   ├── tools.py               # Olist tools, ML inference, DuckDB, map
+│   ├── dataco_tools.py        # DataCo analytics and guarded SQL
+│   ├── dataco_map.py          # Country-flow aggregation
+│   ├── dataco_country_coords.py
+│   ├── marketing_tools.py     # Marketing and seller analytics
+│   ├── data_pipeline.py      # Olist preprocessing
+│   ├── history_features.py   # Historical features
+│   └── train_models.py       # Model training
 ├── templates/
-│   ├── index.html
-│   └── map.html
-│
+│   ├── index.html            # Chat interface
+│   ├── map.html              # Olist map
+│   └── dataco_map.html       # DataCo map
+├── tests/
+│   └── test_dataco_map.py
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
@@ -286,134 +416,15 @@ GET  /api/map/geojson
 └── READMEENG.md
 ~~~
 
-## 10. Local setup
+## Current Limitations
 
-### 10.1. Install dependencies
+- Chat history is stored in the Flask process's RAM. It is lost when the process restarts; production or multi-instance deployment should use Redis or a database with an appropriate session strategy.
+- Agent responses and tool calling depend on the provider, API keys, quotas, network connectivity, and model availability.
+- The local rule-based fallback only covers explicitly programmed patterns and currently supports Olist only. DataCo requires an online provider.
+- Olist and DataCo are historical datasets, not real-time logistics feeds.
+- Map coordinates are for aggregate visualization, not GPS or evidence of a verified physical route.
+- Before production use, validate models on newer data, assess leakage, add authentication/authorization, manage secrets carefully, and provide durable history, logging, and monitoring.
 
-~~~bash
-pip install -r requirements.txt
-~~~
+## Technology Stack
 
-### 10.2. Configure environment
-
-Copy:
-
-~~~text
-.env.example
-~~~
-
-to:
-
-~~~text
-.env
-~~~
-
-Then fill in the API keys you need.
-
-> Never commit the real `.env` file to GitHub.
-
-### 10.3. Run Flask
-
-PowerShell:
-
-~~~powershell
-$env:GEMINI_API_KEY="your-key"
-python -m src.api
-~~~
-
-Open:
-
-~~~text
-http://localhost:5000
-~~~
-
-Map:
-
-~~~text
-http://localhost:5000/map
-~~~
-
-### 10.4. Run data pipeline / training
-
-Rebuild the processed dataset:
-
-~~~bash
-python -m src.data_pipeline
-~~~
-
-Train both production models:
-
-~~~bash
-python -m src.train_models
-~~~
-
-Or train separately:
-
-~~~bash
-python -m src.train_models classifier
-python -m src.train_models regressor
-~~~
-
-## 11. Docker
-
-Build and start:
-
-~~~bash
-docker compose up --build
-~~~
-
-Check:
-
-~~~bash
-docker compose ps
-~~~
-
-Healthcheck:
-
-~~~text
-http://localhost:5000/health
-~~~
-
-Application:
-
-~~~text
-http://localhost:5000
-~~~
-
-Map:
-
-~~~text
-http://localhost:5000/map
-~~~
-
-The Dockerfile uses a multi-stage build: dependencies are installed in the builder stage, while the runtime stage keeps only the environment required to serve the application.
-
-Docker Compose mounts the dataset and model directories read-only so they can be replaced without rebuilding the image.
-
-## 12. Example questions
-
-~~~text
-What are the top 5 customer states with the highest late-delivery rate?
-
-Does a new order from a seller in SP to a customer in RJ, 900 km away, have a high late-delivery risk?
-
-How is this seller performing?
-
-Compare late-delivery rates by month.
-
-Which product categories have the longest delivery times?
-
-Show the order flow from SP to RJ on the map.
-~~~
-
-## 13. Limitations and future work
-
-- Olist is historical data; the map is intended for visualization rather than live tracking.
-- Chat history is currently stored in Flask process memory; multi-instance deployments should use Redis or a database.
-- Each external LLM provider requires its own API key; the local fallback only supports a limited set of patterns.
-- Possible extensions include seller recommendation, route-aware prediction, model monitoring, drift detection, and long-term conversation memory.
-- Classifier performance can be further optimized using business-cost-based thresholding or cost-sensitive learning.
-
----
-
-**Stack:** Python, Pandas, scikit-learn, XGBoost, DuckDB, Flask, Google GenAI, OpenAI API, xAI API, Groq, Tavily, Leaflet, Docker
+**Python · Pandas · NumPy · scikit-learn · XGBoost · DuckDB · Flask · Google GenAI · OpenAI API · xAI · Groq · OpenRouter · Tavily · Leaflet · Docker Compose**
