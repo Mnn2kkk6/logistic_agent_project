@@ -564,13 +564,10 @@
 <aside>
   <div class="route-line"></div>
   <h1>AI Logistics Agent</h1>
-  <p class="subtitle">Hỏi bất cứ điều gì về đơn hàng, rủi ro giao trễ, hoặc hiệu suất vận chuyển trên dữ liệu Olist.</p>
+  <p class="subtitle">Tra cứu đơn hàng, phân tích rủi ro giao trễ và hỏi đáp tài liệu logistics trên Olist hoặc DataCo trong cùng một cuộc trò chuyện.</p>
 
   <a href="/map" class="chip" style="text-align: center; border-color: var(--teal); color: var(--teal); text-decoration: none; font-weight: 600; margin-bottom: 24px; box-shadow: 0 2px 8px rgba(47,191,160,0.15); display: block;">
     🗺️ Xem Bản đồ luồng đơn hàng
-  </a>
-  <a href="/knowledge" class="chip" style="text-align: center; border-color: var(--amber); color: var(--amber); text-decoration: none; font-weight: 600; margin-bottom: 24px; display: block;">
-    📚 Logistics Knowledge Assistant (RAG)
   </a>
 
   <!-- Chỉ hiện khi đã thật sự có ít nhất 1 cuộc trò chuyện đã kết thúc -->
@@ -599,8 +596,8 @@
         <div class="home-badge"><span class="home-dot"></span> Olist E-commerce · Brazil</div>
         <h2>Chào bạn 👋 Mình là <span>AI Logistics Agent</span></h2>
         <p class="home-subtitle">
-          Hỏi trực tiếp về đơn hàng, rủi ro giao trễ, hiệu suất vận chuyển
-          hoặc bắt đầu nhanh bằng một câu hỏi mẫu bên dưới.
+          Hỏi về số liệu đơn hàng, dự đoán rủi ro hoặc tài liệu logistics ngay tại đây.
+          Agent sẽ tự chọn công cụ phân tích dữ liệu hay RAG và dẫn nguồn khi có bằng chứng.
         </p>
 
         <div class="sample-grid">
@@ -632,6 +629,13 @@
             <div class="sample-question">Category nào có tỉ lệ giao trễ đáng lo nhất?</div>
           </button>
 
+          <button class="sample-card" data-q="Trường late_delivery_risk trong DataCo có ý nghĩa gì? Đây có phải xác suất dự đoán của model không?">
+            <span class="sample-arrow">↗</span>
+            <div class="sample-icon">📚</div>
+            <div class="sample-title">Tra cứu tài liệu logistics</div>
+            <div class="sample-question">Hỏi về định nghĩa dữ liệu, quy trình và tài liệu dự án; Agent sẽ tìm nguồn bằng RAG.</div>
+          </button>
+
           <button class="sample-card sample-card-wide" data-q="Điều gì ảnh hưởng nhiều nhất tới việc giao hàng trễ ở bang RJ?">
             <span class="sample-arrow">↗</span>
             <div class="sample-icon">🔎</div>
@@ -640,7 +644,7 @@
           </button>
         </div>
 
-        <div class="home-hint">Hoặc nhập câu hỏi của riêng bạn ở ô bên dưới.</div>
+        <div class="home-hint">Một khung chat duy nhất — Agent tự chọn SQL, ML, công cụ nghiệp vụ hoặc RAG tùy câu hỏi.</div>
       </section>
     </div>
   </div>

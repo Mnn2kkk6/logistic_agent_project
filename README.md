@@ -14,7 +14,7 @@ Dự án hiện hỗ trợ hai bộ dữ liệu: **Olist Brazilian E-Commerce** 
 - [Bộ dữ liệu](#bộ-dữ-liệu)
 - [Machine Learning với Olist](#machine-learning-với-olist)
 - [AI Agent và tự động chọn LLM](#ai-agent-và-tự-động-chọn-llm)
-- [RAG và Logistics Knowledge Assistant](#rag-và-logistics-knowledge-assistant)
+- [RAG tích hợp trong AI Logistics Agent](#rag-tích-hợp-trong-ai-logistics-agent)
 - [Bản đồ logistics](#bản-đồ-logistics)
 - [API](#api)
 - [Cài đặt và chạy local](#cài-đặt-và-chạy-local)
@@ -167,51 +167,45 @@ Các tích hợp trong code gồm **Google Gemini, OpenAI, xAI, Groq và OpenRou
 
 Truy vấn SQL được giới hạn số dòng trả về. Với DataCo, agent chỉ được truy vấn bảng **dataco_orders** và bị chặn nhiều từ khóa/hàm có khả năng thay đổi dữ liệu hoặc đọc file tùy ý. Đây là lớp bảo vệ ở mức ứng dụng, không thay thế việc kiểm soát quyền truy cập, xác thực và bảo vệ hạ tầng khi triển khai production.
 
-## RAG và Logistics Knowledge Assistant
+## RAG tích hợp trong AI Logistics Agent
 
-Module RAG bổ sung hỏi đáp trên tài liệu, không thay thế DuckDB/SQL hoặc các model ML. Dữ liệu số có cấu trúc vẫn phải được tính qua tool phù hợp; RAG dùng cho định nghĩa, tài liệu dự án và quy trình.
+RAG là **một công cụ bên trong Agent**, không phải một giao diện chat riêng. Người dùng đặt tất cả câu hỏi tại **http://localhost:5000**; Agent tự lựa chọn giữa SQL/data tools, model ML và RAG dựa trên nội dung câu hỏi.
 
-### Luồng xử lý
+- Câu hỏi cần số liệu, thống kê hoặc phân tích đơn hàng: Agent dùng công cụ dữ liệu/SQL phù hợp.
+- Câu hỏi về định nghĩa trường, tài liệu dự án hoặc quy trình: Agent gọi `query_knowledge_base`, truy xuất tài liệu liên quan từ Qdrant và dùng nguồn tìm được để trả lời.
+- Câu hỏi kết hợp số liệu và tài liệu có thể dùng cả hai loại công cụ trong cùng một lượt hội thoại.
+- Agent được hướng dẫn dẫn nguồn tài liệu và nói rõ khi kho tri thức không có bằng chứng đủ liên quan; RAG không thay thế SQL và không được dùng để bịa số liệu.
 
-1. Chọn các nguồn tài liệu được cho phép: README song ngữ, mô tả trường DataCo, metadata model và tài liệu trong thư mục knowledge_base.
-2. LangChain đọc nội dung, chia thành chunks có overlap và giữ metadata nguồn.
-3. Embedding đa ngôn ngữ chạy local; Qdrant lưu vector và nội dung.
-4. Retriever lấy các đoạn liên quan, LLM được cấu hình hiện có tổng hợp câu trả lời và citations.
-5. Nếu không có đoạn nào đạt ngưỡng tương đồng, RAG trả lời rằng chưa đủ bằng chứng thay vì đoán.
+### Tạo hoặc cập nhật chỉ mục tài liệu
 
-CSV đơn hàng Olist/DataCo thô không được ingest. File knowledge_base/sample_delivery_sop.md là SOP hư cấu để demo, không phải chính sách chính thức của Olist/DataCo.
+Chỉ ingest các nguồn đã được cho phép: README song ngữ, mô tả trường DataCo, metadata model và tài liệu được tuyển chọn trong `knowledge_base/`. CSV đơn hàng Olist/DataCo thô không được ingest. `knowledge_base/sample_delivery_sop.md` là SOP hư cấu để demo, không phải chính sách chính thức của Olist/DataCo.
 
-### Chạy bằng Docker
+**Docker:**
 
 ~~~bash
 docker compose up --build -d
-docker compose ps
 docker compose exec logistics-agent python -m src.rag_ingest
 ~~~
 
-Mở trang hỏi đáp tại http://localhost:5000/knowledge. Lần đầu ingest sẽ tải embedding model đa ngôn ngữ qua FastEmbed (ONNX, chạy CPU) và lưu cache vào Docker volume fastembed_cache. Những lần sau có thể dùng lại cache. Cần có ít nhất một LLM API key đã cấu hình (Gemini, Groq, OpenRouter, OpenAI hoặc xAI) để sinh câu trả lời; embedding được tính local.
+Mở **http://localhost:5000** rồi hỏi trực tiếp, ví dụ: “Trường `late_delivery_risk` trong DataCo có phải xác suất dự đoán của model không?”. Lần ingest đầu sẽ tải embedding model đa ngôn ngữ qua FastEmbed (ONNX, chạy CPU) và lưu cache vào volume `fastembed_cache`.
 
-### Chạy Python trực tiếp
-
-Cài các gói trong requirements.txt. Để dùng Qdrant local persistent, đảm bảo biến môi trường QDRANT_URL không được đặt; kho sẽ được tạo tại .qdrant_storage mặc định. Sau đó chạy:
+**Python chạy trực tiếp:**
 
 ~~~powershell
-# Windows PowerShell
 python -m src.rag_ingest
 python -m src.api
 ~~~
 
-Mở http://localhost:5000/knowledge. Python chạy trực tiếp không tự đọc .env; đặt API key cho LLM trong terminal/IDE như hướng dẫn ở phần cài đặt.
+Sau đó mở **http://localhost:5000**. Python chạy trực tiếp không tự động nạp `.env`; hãy cấu hình API key cho LLM trong terminal hoặc IDE. Embedding được tính local, còn việc sinh câu trả lời cần một LLM provider đã cấu hình.
 
-### RAG API
+### API RAG
 
 | Method | Endpoint | Mục đích |
 |---|---|---|
-| GET | /knowledge | Giao diện Knowledge Assistant |
-| GET | /api/v1/rag/status | Trạng thái index, số chunks và cấu hình backend |
-| POST | /api/v1/rag/query | Hỏi đáp trên kho tài liệu, trả lời kèm nguồn |
+| GET | /api/v1/rag/status | Kiểm tra chỉ mục, số chunks và cấu hình backend |
+| POST | /api/v1/rag/query | API hỏi đáp tài liệu trực tiếp, trả về nguồn; hữu ích cho tích hợp hoặc kiểm thử |
 
-Ví dụ request:
+Ví dụ gọi API trực tiếp (không phải giao diện chat thứ hai):
 
 ~~~bash
 curl -X POST http://localhost:5000/api/v1/rag/query \
@@ -219,15 +213,15 @@ curl -X POST http://localhost:5000/api/v1/rag/query \
   -d '{"question":"Trường late_delivery_risk có phải xác suất model dự đoán không?","top_k":4}'
 ~~~
 
-API nhận JSON gồm question (hoặc query) và top_k từ 1 đến 8. Mỗi nguồn trả về có đường dẫn tài liệu, similarity score và excerpt để kiểm chứng. Chat agent hiện tại cũng có tool query_knowledge_base cho câu hỏi về tài liệu; câu hỏi thống kê vẫn nên đi qua SQL.
+API nhận `question` (hoặc `query`) và `top_k` từ 1 đến 8. Nguồn trả về gồm đường dẫn, điểm tương đồng và đoạn trích. URL cũ `/knowledge` sẽ chuyển về chat Agent chính.
 
-### Tuỳ chỉnh và giới hạn
+### Cấu hình và giới hạn
 
-- RAG_EMBEDDING_MODEL mặc định là sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2; model được tải khi indexing lần đầu; FastEmbed dùng ONNX Runtime, không cần cài PyTorch.
-- RAG_LLM_PROVIDER=auto chọn provider đầu tiên có API key; có thể chọn gemini, groq, openrouter, openai hoặc xai. RAG_LLM_MODEL là tuỳ chọn override model.
-- RAG_MIN_RELEVANCE_SCORE điều chỉnh ngưỡng từ chối khi nguồn không đủ liên quan. Cần đánh giá trên bộ câu hỏi thực tế trước khi dùng nghiệp vụ.
-- Chỉ lập chỉ mục tài liệu đã được chọn. Không commit bí mật, dữ liệu cá nhân hoặc tài liệu doanh nghiệp chưa được phép chia sẻ vào repository.
-- Demo hiện chưa có xác thực người dùng/ACL theo tài liệu; không triển khai kho tài liệu riêng tư ra Internet nếu chưa bổ sung kiểm soát truy cập.
+- `RAG_EMBEDDING_MODEL` mặc định là `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`; FastEmbed dùng ONNX Runtime, không cần cài PyTorch.
+- `RAG_LLM_PROVIDER=auto` chọn provider có cấu hình phù hợp; có thể dùng `gemini`, `groq`, `openrouter`, `openai` hoặc `xai`. `RAG_LLM_MODEL` là tuỳ chọn.
+- `RAG_MIN_RELEVANCE_SCORE` điều chỉnh ngưỡng từ chối khi bằng chứng không đủ liên quan; nên đánh giá trên bộ câu hỏi thực tế.
+- Chỉ lập chỉ mục tài liệu được phép sử dụng. Không commit secret, dữ liệu cá nhân hay tài liệu doanh nghiệp mật vào repository công khai.
+- Demo chưa có authentication và ACL theo tài liệu; không đưa kho tài liệu riêng tư lên Internet trước khi bổ sung kiểm soát truy cập.
 
 ## Bản đồ logistics
 
@@ -409,7 +403,7 @@ docker compose logs -f logistics-agent
 
 4. Truy cập **http://localhost:5000**. Healthcheck là **http://localhost:5000/health**.
 
-Để dùng RAG, chạy lệnh ingest trong mục RAG ở trên rồi mở **http://localhost:5000/knowledge**.
+Để dùng RAG, chạy lệnh ingest trong mục RAG ở trên rồi mở **http://localhost:5000**.
 
 Dừng ứng dụng:
 
