@@ -54,6 +54,10 @@ _DOCUMENT_MARKERS = (
     "agent cua du an",
     "du an nay",
     "he thong nay",
+    "compare olist and dataco",
+    "difference between olist and dataco",
+    "so sanh olist va dataco",
+    "khac nhau giua olist va dataco",
 )
 
 _DATA_MARKERS = (
@@ -98,7 +102,6 @@ _DATA_MARKERS = (
     "total ",
     "percentage",
     "rank ",
-    "compare ",
     "by market",
     "by region",
     "by country",
@@ -115,6 +118,10 @@ _DATA_MARKERS = (
     "fastest",
     "slowest",
     "best performing",
+    "metrics",
+    "metric ",
+    "chi so",
+    "so lieu",
 )
 
 _HYBRID_MARKERS = (
