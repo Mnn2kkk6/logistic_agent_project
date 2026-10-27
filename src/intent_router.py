@@ -42,6 +42,18 @@ _DOCUMENT_MARKERS = (
     "data field",
     "workflow",
     "project documentation",
+    "project overview",
+    "project architecture",
+    "project structure",
+    "how does the project work",
+    "how does this project work",
+    "what does the project do",
+    "what does this project do",
+    "how does the agent work",
+    "ai logistics agent",
+    "agent cua du an",
+    "du an nay",
+    "he thong nay",
 )
 
 _DATA_MARKERS = (
@@ -136,6 +148,15 @@ def _classify_one(message: str) -> str:
 
     has_document_intent = any(marker in text for marker in _DOCUMENT_MARKERS)
     has_document_intent = has_document_intent or _has_field_definition(text)
+    has_named_project = any(
+        entity in text
+        for entity in ("dataco", "olist", "ai logistics agent", "qdrant", "fastembed")
+    )
+    asks_for_definition = any(
+        phrase in text
+        for phrase in (" la gi", " what is ", "what is", " nghia la gi", "meaning of ")
+    )
+    has_document_intent = has_document_intent or (has_named_project and asks_for_definition)
     has_data_intent = any(marker in text for marker in _DATA_MARKERS)
     has_explicit_hybrid = any(marker in text for marker in _HYBRID_MARKERS)
 
