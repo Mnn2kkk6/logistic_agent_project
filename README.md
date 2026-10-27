@@ -57,11 +57,18 @@ Dự án hiện hỗ trợ hai bộ dữ liệu: **Olist Brazilian E-Commerce** 
 
 ### Chat và phân tích nghiệp vụ
 
-![AI Logistics Agent chat interface](MyAgentDemo/Home.png)
+<img width="1919" height="935" alt="image" src="https://github.com/user-attachments/assets/96db6384-1eae-4f79-a566-f7f266a1ab66" />
+
 
 ### Bản đồ luồng đơn hàng Olist
 
-![Olist logistics flow map](MyAgentDemo/Map.png)
+<img width="1919" height="935" alt="image" src="https://github.com/user-attachments/assets/81162530-deb7-43fc-9439-5408cc19dd5e" />
+
+### Bản đồ luồng đơn hàng DataCo
+
+<img width="1919" height="938" alt="image" src="https://github.com/user-attachments/assets/eaf0771e-85b4-4b25-8171-096a60528141" />
+
+
 
 ## Kiến trúc hệ thống
 
