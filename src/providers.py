@@ -75,13 +75,13 @@ def _active_system_prompt():
     prompt = dataco_tools.SYSTEM_PROMPT if _ACTIVE_DATASET_ID.get() == "dataco" else SYSTEM_PROMPT
     if intent == "data_ml":
         prompt += (
-            "\\n\\nRouting constraint: This request is routed to the data/ML path. "
+            "\n\nRouting constraint: This request is routed to the data/ML path. "
             "Use only the tools exposed for the selected dataset. Do not call or request RAG, "
             "and never invent dataset values."
         )
     elif intent == "hybrid":
         prompt += (
-            "\\n\\nHybrid request: use the knowledge-base tool for documented definitions or processes, "
+            "\n\nHybrid request: use the knowledge-base tool for documented definitions or processes, "
             "and use dataset SQL/ML tools for calculated results. Use both only when the question needs both; "
             "clearly distinguish source documentation from observed dataset results."
         )
@@ -337,9 +337,9 @@ def _gemini_client():
     return genai.Client(api_key=api_key)
 
 
-def _gemini_generate_with_retry(client, model, contents, config, max_retries=4):
+def _gemini_generate_with_retry(client, model, contents, config, max_retries=3):
     from google.genai import errors
-    delay = 2.0
+    delay = 1.0
     for attempt in range(max_retries):
         try:
             return client.models.generate_content(model=model, contents=contents, config=config)
