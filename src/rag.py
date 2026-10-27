@@ -352,6 +352,11 @@ def _llm_candidates() -> list[tuple[str, str, str, str | None]]:
         "openai": ("openai_compatible", os.environ.get("OPENAI_API_KEY", ""), "gpt-4o-mini", None),
         "xai": ("openai_compatible", os.environ.get("XAI_API_KEY", ""), "grok-4-fast", "https://api.x.ai/v1"),
     }
+    model_override = os.environ.get("RAG_LLM_MODEL", "").strip()
+    if requested == "auto" and model_override:
+        raise RAGConfigurationError(
+            "Khi đặt RAG_LLM_MODEL, hãy đặt RAG_LLM_PROVIDER tường minh để model không bị gửi nhầm provider."
+        )
     if requested != "auto":
         if requested not in all_specs:
             raise RAGConfigurationError("RAG_LLM_PROVIDER phải là auto, gemini, groq, openrouter, openai hoặc xai.")
