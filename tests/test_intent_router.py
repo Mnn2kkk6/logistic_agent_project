@@ -16,6 +16,9 @@ class IntentRouterTests(unittest.TestCase):
             "rag",
         )
 
+    def test_explaining_snake_case_field_routes_to_rag(self):
+        self.assertEqual(classify_intent("Explain late_delivery_risk"), "rag")
+
     def test_quantitative_question_routes_to_data_tools(self):
         self.assertEqual(
             classify_intent("Tính tỷ lệ giao hàng trễ theo từng market"),
