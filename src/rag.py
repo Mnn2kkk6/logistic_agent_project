@@ -7,7 +7,6 @@ the existing provider keys are reused for grounded answer generation.
 from __future__ import annotations
 
 import csv
-import hashlib
 import json
 import logging
 import os
