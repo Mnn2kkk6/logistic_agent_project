@@ -39,6 +39,12 @@ class IntentRouterTests(unittest.TestCase):
     def test_english_field_definition_routes_to_rag(self):
         self.assertEqual(classify_intent("What does late_delivery_risk mean?"), "rag")
 
+    def test_named_dataset_definition_routes_to_rag(self):
+        self.assertEqual(classify_intent("What is DataCo?"), "rag")
+
+    def test_project_workflow_question_routes_to_rag(self):
+        self.assertEqual(classify_intent("How does this project work?"), "rag")
+
     def test_tool_schemas_are_filtered_by_intent(self):
         tools = [
             {"name": "query_dataset_sql"},
