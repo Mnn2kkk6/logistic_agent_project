@@ -58,6 +58,13 @@ _DOCUMENT_MARKERS = (
     "difference between olist and dataco",
     "so sanh olist va dataco",
     "khac nhau giua olist va dataco",
+    "repo",
+    "repository",
+    "in this repo",
+    "in this project",
+    "trong repo",
+    "trong du an",
+    "cua repo",
 )
 
 _DATA_MARKERS = (
