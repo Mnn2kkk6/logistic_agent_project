@@ -48,6 +48,9 @@ class IntentRouterTests(unittest.TestCase):
     def test_project_workflow_question_routes_to_rag(self):
         self.assertEqual(classify_intent("How does this project work?"), "rag")
 
+    def test_repo_specific_question_routes_to_rag(self):
+        self.assertEqual(classify_intent("What are the RAG limitations in this repository?"), "rag")
+
     def test_tool_schemas_are_filtered_by_intent(self):
         tools = [
             {"name": "query_dataset_sql"},
