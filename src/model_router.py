@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any
 
-from src import providers
+from src import providers, rag
+from src.intent_router import classify_intent
 
 logger = logging.getLogger(__name__)
 
@@ -141,13 +143,98 @@ def _ordered_candidates(task: str) -> list[str]:
     return [primary, *cross_provider, *same_provider]
 
 
+def _new_history(
+    history: list[dict[str, str]], user_message: str, reply: str
+) -> list[dict[str, str]]:
+    return history + [
+        {"role": "user", "content": user_message},
+        {"role": "assistant", "content": reply},
+    ]
+
+
+def _direct_rag_query(history: list[dict[str, str]], user_message: str) -> str:
+    """Add the previous user question to terse follow-ups for retrieval relevance."""
+    if len(user_message.split()) <= 7 and history:
+        previous_user = next(
+            (
+                item.get("content", "")
+                for item in reversed(history)
+                if isinstance(item, dict) and item.get("role") == "user"
+                and isinstance(item.get("content"), str) and item.get("content", "").strip()
+            ),
+            "",
+        )
+        if previous_user:
+            return f"Câu hỏi trước: {previous_user}\\nCâu hỏi tiếp theo: {user_message}"
+    return user_message
+
+
+def _format_direct_rag_reply(result: dict[str, Any]) -> str:
+    answer = str(result.get("answer") or rag.ABSTENTION).strip()
+    sources = result.get("sources") or []
+    if sources and not result.get("abstained"):
+        source_lines = []
+        for index, source in enumerate(sources, start=1):
+            label = str(source.get("id") or f"S{index}")
+            title = str(source.get("title") or source.get("source") or "Tài liệu")
+            source_path = str(source.get("source") or "")
+            source_lines.append(f"- [{label}] {title}" + (f" ({source_path})" if source_path else ""))
+        answer += "\\n\\nNguồn tham khảo:\\n" + "\\n".join(source_lines)
+    return answer
+
+
 def chat_turn_auto(
     history: list[dict[str, str]],
     user_message: str,
     dataset_id: str = "olist",
 ) -> tuple[str, list[dict[str, Any]], list[dict[str, str]], dict[str, Any]]:
-    """Ưu tiên local cho mẫu đã code; câu hỏi còn lại mới dùng model online."""
+    """Route one chat turn to direct RAG, data/ML, hybrid tools, or no-tool chat."""
     task = classify_task(user_message)
+    intent = classify_intent(user_message, history)
+    logger.info("Intent routing: intent=%s dataset=%s", intent, dataset_id)
+
+    # Documentation-only questions bypass tool selection entirely. Retrieval and
+    # grounded generation run directly, so the main agent doesn't spend an LLM turn
+    # deciding to call query_knowledge_base.
+    if intent == "rag":
+        started = time.perf_counter()
+        try:
+            rag_result = rag.answer_question(_direct_rag_query(history, user_message), top_k=4)
+            reply = _format_direct_rag_reply(rag_result)
+            abstained = bool(rag_result.get("abstained"))
+            source_count = len(rag_result.get("sources") or [])
+        except (rag.RAGError, ValueError) as exc:
+            logger.warning("Direct RAG unavailable: %s", exc)
+            reply = (
+                "Mình chưa thể tra cứu kho tài liệu lúc này. Hãy kiểm tra kho đã được lập chỉ mục, "
+                "Qdrant đang hoạt động và provider/API key dùng để sinh câu trả lời có quota."
+            )
+            abstained = True
+            source_count = 0
+        except Exception:
+            logger.exception("Unexpected direct RAG failure")
+            reply = (
+                "Đã xảy ra lỗi khi tra cứu kho tài liệu. Hãy kiểm tra log backend và trạng thái Qdrant "
+                "rồi thử lại."
+            )
+            abstained = True
+            source_count = 0
+
+        elapsed_ms = round((time.perf_counter() - started) * 1000)
+        new_history = _new_history(history, user_message, reply)
+        route_info = {
+            "task": "rag",
+            "intent": intent,
+            "model_id": "direct-rag",
+            "attempt": 1,
+            "fallback_used": abstained,
+            "dataset_id": dataset_id,
+        }
+        logger.info(
+            "Direct RAG completed: dataset=%s elapsed_ms=%s sources=%s abstained=%s",
+            dataset_id, elapsed_ms, source_count, abstained,
+        )
+        return reply, [], new_history, route_info
     local_reply: str | None = None
     local_tool_calls: list[dict[str, Any]] = []
     local_new_history: list[dict[str, str]] | None = None
@@ -155,14 +242,19 @@ def chat_turn_auto(
 
     # Run the existing rule-based agent first. If it recognizes a coded pattern,
     # its answer/tool result wins and no paid API call is made.
-    if dataset_id == "olist" and "local-rule-based" in providers.AVAILABLE_MODELS:
+    if (
+        dataset_id == "olist"
+        and intent != "hybrid"
+        and "local-rule-based" in providers.AVAILABLE_MODELS
+    ):
         try:
             local_reply, local_tool_calls, local_new_history = providers.chat_turn(
-                "local-rule-based", history, user_message, dataset_id=dataset_id
+                "local-rule-based", history, user_message, dataset_id=dataset_id, intent=intent
             )
             if local_marker not in local_reply:
                 route_info = {
                     "task": "local",
+                    "intent": intent,
                     "model_id": "local-rule-based",
                     "attempt": 0,
                     "fallback_used": False,
@@ -211,10 +303,11 @@ def chat_turn_auto(
     for attempt, model_id in enumerate(candidates, start=1):
         try:
             reply, tool_calls, new_history = providers.chat_turn(
-                model_id, history, user_message, dataset_id=dataset_id
+                model_id, history, user_message, dataset_id=dataset_id, intent=intent
             )
             route_info = {
                 "task": task,
+                "intent": intent,
                 "model_id": model_id,
                 "attempt": attempt,
                 "fallback_used": attempt > 1,
@@ -237,6 +330,7 @@ def chat_turn_auto(
     if local_reply is not None and local_new_history is not None:
         route_info = {
             "task": "local",
+            "intent": intent,
             "model_id": "local-rule-based",
             "attempt": len(candidates) + 1,
             "fallback_used": True,
