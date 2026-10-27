@@ -86,7 +86,7 @@ Dự án hiện hỗ trợ hai bộ dữ liệu: **Olist Brazilian E-Commerce** 
    Olist state-flow map              Country-flow map
 ~~~
 
-**Luồng RAG:** tài liệu được allowlist → chunking bằng LangChain → embedding đa ngôn ngữ chạy local → Qdrant → retriever → LLM hiện có tạo câu trả lời kèm nguồn.
+**Luồng RAG:** tài liệu được allowlist → chunking bằng LangChain → FastEmbed embedding đa ngôn ngữ chạy local → Qdrant → retriever → LLM hiện có tạo câu trả lời kèm nguồn.
 
 **Luồng xử lý Olist:** CSV gốc → gộp đơn và tạo đặc trưng → dataset đã xử lý → model XGBoost và các công cụ DuckDB → Flask UI/API.
 
@@ -189,7 +189,7 @@ docker compose ps
 docker compose exec logistics-agent python -m src.rag_ingest
 ~~~
 
-Mở trang hỏi đáp tại http://localhost:5000/knowledge. Lần đầu ingest sẽ tải embedding model đa ngôn ngữ và lưu cache vào Docker volume hf_cache. Những lần sau có thể dùng lại cache. Cần có ít nhất một LLM API key đã cấu hình (Gemini, Groq, OpenRouter, OpenAI hoặc xAI) để sinh câu trả lời; embedding được tính local.
+Mở trang hỏi đáp tại http://localhost:5000/knowledge. Lần đầu ingest sẽ tải embedding model đa ngôn ngữ qua FastEmbed (ONNX, chạy CPU) và lưu cache vào Docker volume fastembed_cache. Những lần sau có thể dùng lại cache. Cần có ít nhất một LLM API key đã cấu hình (Gemini, Groq, OpenRouter, OpenAI hoặc xAI) để sinh câu trả lời; embedding được tính local.
 
 ### Chạy Python trực tiếp
 
@@ -223,7 +223,7 @@ API nhận JSON gồm question (hoặc query) và top_k từ 1 đến 8. Mỗi n
 
 ### Tuỳ chỉnh và giới hạn
 
-- RAG_EMBEDDING_MODEL mặc định là sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2; model được tải khi indexing lần đầu.
+- RAG_EMBEDDING_MODEL mặc định là sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2; model được tải khi indexing lần đầu; FastEmbed dùng ONNX Runtime, không cần cài PyTorch.
 - RAG_LLM_PROVIDER=auto chọn provider đầu tiên có API key; có thể chọn gemini, groq, openrouter, openai hoặc xai. RAG_LLM_MODEL là tuỳ chọn override model.
 - RAG_MIN_RELEVANCE_SCORE điều chỉnh ngưỡng từ chối khi nguồn không đủ liên quan. Cần đánh giá trên bộ câu hỏi thực tế trước khi dùng nghiệp vụ.
 - Chỉ lập chỉ mục tài liệu đã được chọn. Không commit bí mật, dữ liệu cá nhân hoặc tài liệu doanh nghiệp chưa được phép chia sẻ vào repository.
