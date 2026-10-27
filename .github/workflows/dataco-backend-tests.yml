@@ -5,6 +5,7 @@ on:
     paths:
       - "src/dataco*.py"
       - "src/rag*.py"
+      - "src/intent_router.py"
       - "src/tool_schemas.py"
       - "knowledge_base/**"
       - "requirements*.txt"
@@ -57,3 +58,5 @@ jobs:
         run: python -m unittest discover -s tests -p "test_dataco_map.py" -v
       - name: Test RAG validation, safe source selection, and abstention
         run: python -m unittest discover -s tests -p "test_rag.py" -v
+      - name: Test hybrid intent routing
+        run: python -m unittest discover -s tests -p "test_intent_router.py" -v
