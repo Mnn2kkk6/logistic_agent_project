@@ -54,10 +54,6 @@ _DOCUMENT_MARKERS = (
     "agent cua du an",
     "du an nay",
     "he thong nay",
-    "compare olist and dataco",
-    "difference between olist and dataco",
-    "so sanh olist va dataco",
-    "khac nhau giua olist va dataco",
     "in this repo",
     "in this repository",
     "within this repository",
@@ -66,6 +62,11 @@ _DOCUMENT_MARKERS = (
     "trong repo",
     "trong du an",
     "cua repo",
+    "gioi thieu ",
+    "describe ",
+    "explain ",
+    "how does ",
+    "tell me about ",
 )
 
 _DATA_MARKERS = (
@@ -126,9 +127,25 @@ _DATA_MARKERS = (
     "fastest",
     "slowest",
     "best performing",
+    "highest",
+    "lowest",
+    "most ",
+    "least ",
+    "compare ",
+    "versus",
+    " vs ",
+    "across ",
+    "group by",
+    "by revenue",
+    "by orders",
 )
 
-_SOFT_DATA_MARKERS = ("metrics", "metric ", "chi so", "so lieu")
+_SOFT_DATA_MARKERS = (
+    "metrics", "metric ", "chi so", "so lieu", "revenue", "sales",
+    "orders", "order count", "delivery rate", "late delivery",
+    "shipping days", "shipping mode", "market", "markets", "region",
+    "regions", "country", "countries", "seller", "category", "categories", "risk",
+)
 
 _HYBRID_MARKERS = (
     "ket hop",
@@ -139,6 +156,10 @@ _HYBRID_MARKERS = (
     "giai thich va tinh",
     "giai thich va thong ke",
     "theo tai lieu va tinh",
+    "compare olist and dataco",
+    "difference between olist and dataco",
+    "so sanh olist va dataco",
+    "khac nhau giua olist va dataco",
 )
 
 _FOLLOW_UP_MARKERS = (
