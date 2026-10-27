@@ -14,6 +14,6 @@ tavily-python>=0.5
 langchain-core>=1.0,<2.0
 langchain-text-splitters>=1.0,<2.0
 langchain-qdrant>=1.1,<2.0
-langchain-huggingface[full]>=1.0,<2.0
+fastembed>=0.7,<1.0
 qdrant-client>=1.15,<2.0
 pypdf>=5,<7
