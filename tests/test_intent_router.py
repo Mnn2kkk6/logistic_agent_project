@@ -45,6 +45,12 @@ class IntentRouterTests(unittest.TestCase):
     def test_named_dataset_definition_routes_to_rag(self):
         self.assertEqual(classify_intent("What is DataCo?"), "rag")
 
+    def test_document_question_about_metrics_stays_on_rag(self):
+        self.assertEqual(
+            classify_intent("According to the README, which metrics are recorded?"),
+            "rag",
+        )
+
     def test_project_workflow_question_routes_to_rag(self):
         self.assertEqual(classify_intent("How does this project work?"), "rag")
 
