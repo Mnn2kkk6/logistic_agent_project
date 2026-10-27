@@ -26,6 +26,7 @@ Rồi mở trình duyệt: http://localhost:5000
 Chạy bằng Docker: xem README mục "Chạy bằng Docker".
 """
 import os
+import time
 import uuid
 from pathlib import Path
 
@@ -54,6 +55,8 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(24).hex())
 # sống trong bộ nhớ process. Đủ dùng cho chạy local/demo 1 vài người dùng; nếu deploy
 # nhiều người dùng thật đồng thời thì nên đổi sang Redis/DB thay vì dict trong RAM.
 _CHAT_HISTORY: dict[str, list] = {}
+# Keep prompts bounded so long-running conversations do not grow every request.
+CHAT_HISTORY_MAX_MESSAGES = 16
 
 
 def _get_session_id() -> str:
@@ -219,6 +222,7 @@ def chat_restore():
         canonical_history.append({"role": role, "content": content})
 
     history_key = f"{_get_session_id()}:{dataset_id}"
+    canonical_history = canonical_history[-CHAT_HISTORY_MAX_MESSAGES:]
     _CHAT_HISTORY[history_key] = canonical_history
     return jsonify({"status": "ok", "messages": len(canonical_history), "dataset_id": dataset_id})
 
@@ -386,23 +390,29 @@ def chat():
 
     sid = _get_session_id()
     history_key = f"{sid}:{dataset_id}"
-    history = _CHAT_HISTORY.setdefault(history_key, [])
+    history = _CHAT_HISTORY.setdefault(history_key, [])[-CHAT_HISTORY_MAX_MESSAGES:]
+    started = time.perf_counter()
 
     try:
         reply, tool_calls, new_history, route_info = chat_turn_auto(
             history, message, dataset_id=dataset_id
         )
     except providers.ProviderError as e:
+        elapsed_ms = round((time.perf_counter() - started) * 1000)
+        app.logger.warning("Chat provider failure: dataset=%s elapsed_ms=%s error=%s", dataset_id, elapsed_ms, e)
         return jsonify({"error": str(e)}), 502
     except Exception as e:  # noqa: BLE001
         # Bất kỳ lỗi nào khác đều phải trả JSON, không để Flask trả HTML 500 mặc định.
-        app.logger.exception("Lỗi không mong đợi khi xử lý /chat")
+        elapsed_ms = round((time.perf_counter() - started) * 1000)
+        app.logger.exception("Unexpected chat failure: dataset=%s elapsed_ms=%s", dataset_id, elapsed_ms)
         return jsonify({"error": f"Đã có lỗi không mong đợi khi xử lý yêu cầu: {e}"}), 500
 
-    _CHAT_HISTORY[history_key] = new_history
+    _CHAT_HISTORY[history_key] = new_history[-CHAT_HISTORY_MAX_MESSAGES:]
+    elapsed_ms = round((time.perf_counter() - started) * 1000)
     app.logger.info(
-        "Chat completed: dataset=%s task=%s model=%s fallback=%s",
-        dataset_id, route_info["task"], route_info["model_id"], route_info["fallback_used"],
+        "Chat completed: dataset=%s intent=%s task=%s model=%s fallback=%s elapsed_ms=%s",
+        dataset_id, route_info.get("intent", "unknown"), route_info["task"],
+        route_info["model_id"], route_info["fallback_used"], elapsed_ms,
     )
     # Không trả tên model về frontend: lựa chọn model hoàn toàn ẩn với người dùng.
     return jsonify({"reply": reply, "tool_calls": tool_calls})
