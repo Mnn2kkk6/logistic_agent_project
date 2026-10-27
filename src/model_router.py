@@ -165,7 +165,7 @@ def _direct_rag_query(history: list[dict[str, str]], user_message: str) -> str:
             "",
         )
         if previous_user:
-            return f"Câu hỏi trước: {previous_user}\\nCâu hỏi tiếp theo: {user_message}"
+            return f"Câu hỏi trước: {previous_user}\nCâu hỏi tiếp theo: {user_message}"
     return user_message
 
 
@@ -179,7 +179,7 @@ def _format_direct_rag_reply(result: dict[str, Any]) -> str:
             title = str(source.get("title") or source.get("source") or "Tài liệu")
             source_path = str(source.get("source") or "")
             source_lines.append(f"- [{label}] {title}" + (f" ({source_path})" if source_path else ""))
-        answer += "\\n\\nNguồn tham khảo:\\n" + "\\n".join(source_lines)
+        answer += "\n\nNguồn tham khảo:\n" + "\n".join(source_lines)
     return answer
 
 
@@ -293,9 +293,9 @@ def chat_turn_auto(
         )
 
     try:
-        max_attempts = int(os.environ.get("MODEL_ROUTER_MAX_ATTEMPTS", "8"))
+        max_attempts = int(os.environ.get("MODEL_ROUTER_MAX_ATTEMPTS", "3"))
     except ValueError:
-        max_attempts = 8
+        max_attempts = 3
     max_attempts = min(max(1, max_attempts), 8)
     candidates = candidates[:max_attempts]
 
