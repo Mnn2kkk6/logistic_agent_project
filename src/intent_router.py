@@ -99,6 +99,22 @@ _DATA_MARKERS = (
     "percentage",
     "rank ",
     "compare ",
+    "by market",
+    "by region",
+    "by country",
+    "by seller",
+    "by category",
+    "theo thi truong",
+    "theo quoc gia",
+    "theo khu vuc",
+    "theo seller",
+    "theo nganh hang",
+    "theo phuong thuc van chuyen",
+    "nhanh nhat",
+    "tot nhat",
+    "fastest",
+    "slowest",
+    "best performing",
 )
 
 _HYBRID_MARKERS = (
@@ -135,7 +151,7 @@ def _has_field_definition(text: str) -> bool:
     """Recognize questions asking what a snake_case dataset field means."""
     has_definition_phrase = any(
         phrase in text
-        for phrase in (" la gi", " nghia la gi", " y nghia ", " meaning of ", " mean?", "what is ", "what does ", "definition of ", "define ")
+        for phrase in (" la gi", " nghia la gi", " y nghia ", " meaning of ", " mean?", "what is ", "what does ", "definition of ", "define ", "explain ", "giai thich ", "describe ")
     )
     has_field_name = bool(re.search(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", text))
     return has_definition_phrase and has_field_name
