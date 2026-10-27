@@ -126,11 +126,9 @@ _DATA_MARKERS = (
     "fastest",
     "slowest",
     "best performing",
-    "metrics",
-    "metric ",
-    "chi so",
-    "so lieu",
 )
+
+_SOFT_DATA_MARKERS = ("metrics", "metric ", "chi so", "so lieu")
 
 _HYBRID_MARKERS = (
     "ket hop",
@@ -188,10 +186,14 @@ def _classify_one(message: str) -> str:
         for phrase in (" la gi", " what is ", "what is", " nghia la gi", "meaning of ")
     )
     has_document_intent = has_document_intent or (has_named_project and asks_for_definition)
-    has_data_intent = any(marker in text for marker in _DATA_MARKERS)
+    has_strong_data_intent = any(marker in text for marker in _DATA_MARKERS)
+    has_soft_data_intent = any(marker in text for marker in _SOFT_DATA_MARKERS)
+    has_data_intent = has_strong_data_intent or has_soft_data_intent
     has_explicit_hybrid = any(marker in text for marker in _HYBRID_MARKERS)
 
-    if has_explicit_hybrid or (has_document_intent and has_data_intent):
+    # A documentation question that merely mentions metrics should stay on RAG.
+    # It becomes hybrid when the user also asks to calculate or compare data.
+    if has_explicit_hybrid or (has_document_intent and has_strong_data_intent):
         return "hybrid"
     if has_document_intent:
         return "rag"
