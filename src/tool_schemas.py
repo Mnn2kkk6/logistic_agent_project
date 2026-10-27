@@ -292,7 +292,7 @@ TOOLS.extend([
             },
             "required": ["from_state", "to_state"],
         },
-    },,
+    },
     {
         "name": "query_knowledge_base",
         "description": "Tìm kiếm tài liệu logistics đã lập chỉ mục để trả lời câu hỏi về định nghĩa, quy trình và tài liệu dự án. Chỉ trả các đoạn nguồn liên quan; không dùng cho thống kê số liệu cần SQL.",
