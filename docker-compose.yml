@@ -1,5 +1,16 @@
 services:
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    container_name: logistics-agent-qdrant
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    restart: unless-stopped
+
   logistics-agent:
+    depends_on:
+      - qdrant
     build: .
     container_name: ai-logistics-agent
     ports:
@@ -15,12 +26,22 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       CARTO_API_KEY: ${CARTO_API_KEY:-}
       FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:-change-me-in-.env}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      QDRANT_LOCAL_PATH: ${QDRANT_LOCAL_PATH:-/app/.qdrant_storage}
+      RAG_COLLECTION_NAME: ${RAG_COLLECTION_NAME:-logistics_knowledge}
+      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
+      RAG_EMBEDDING_THREADS: ${RAG_EMBEDDING_THREADS:-4}
+      FASTEMBED_CACHE_PATH: /app/.cache/fastembed
+      RAG_MIN_RELEVANCE_SCORE: ${RAG_MIN_RELEVANCE_SCORE:-0.20}
+      RAG_LLM_PROVIDER: ${RAG_LLM_PROVIDER:-auto}
+      RAG_LLM_MODEL: ${RAG_LLM_MODEL:-}
       FLASK_DEBUG: "0"
     volumes:
       # Mount dataset/model dạng read-only: có thể cập nhật data/model (vd train lại) mà
       # không cần build lại image — chỉ cần restart container.
       - ./data:/app/data:ro
       - ./models:/app/models:ro
+      - fastembed_cache:/app/.cache/fastembed
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)"]
@@ -28,3 +49,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+volumes:
+  qdrant_storage:
+  fastembed_cache:

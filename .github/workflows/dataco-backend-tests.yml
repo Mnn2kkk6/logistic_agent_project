@@ -4,6 +4,15 @@ on:
   pull_request:
     paths:
       - "src/dataco*.py"
+      - "src/rag*.py"
+      - "src/tool_schemas.py"
+      - "knowledge_base/**"
+      - "requirements*.txt"
+      - "Dockerfile"
+      - "docker-compose.yml"
+      - ".env.example"
+      - "README*.md"
+      - "templates/rag.html"
       - "src/api.py"
       - "src/providers.py"
       - "src/dataset_registry.py"
@@ -25,6 +34,10 @@ jobs:
           python-version: "3.12"
       - name: Install test dependencies
         run: python -m pip install --upgrade pip duckdb pandas
+      - name: Install and verify RAG dependencies
+        run: |
+          python -m pip install "langchain-core>=1.0,<2.0" "langchain-text-splitters>=1.0,<2.0" "langchain-qdrant>=1.1,<2.0" "fastembed>=0.7,<1.0" "qdrant-client>=1.15,<2.0" "pypdf>=5,<7"
+          python -c "from fastembed import TextEmbedding; from langchain_core.embeddings import Embeddings; from langchain_text_splitters import RecursiveCharacterTextSplitter; from langchain_qdrant import QdrantVectorStore; from qdrant_client import QdrantClient; print('RAG dependencies import OK')"
       - name: Compile Python source
         run: python -m compileall -q src tests
       - name: Check DataCo map JavaScript syntax
@@ -42,3 +55,5 @@ jobs:
           node --check /tmp/dataco_map_inline.js
       - name: Test DataCo dataset and country map
         run: python -m unittest discover -s tests -p "test_dataco_map.py" -v
+      - name: Test RAG validation, safe source selection, and abstention
+        run: python -m unittest discover -s tests -p "test_rag.py" -v

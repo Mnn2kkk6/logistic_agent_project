@@ -39,9 +39,11 @@ COPY templates ./templates
 COPY data ./data
 COPY data_2 ./data_2
 COPY models ./models
+COPY knowledge_base ./knowledge_base
 
 # Chạy bằng user thường, không phải root — thực hành bảo mật cơ bản khi deploy.
-RUN useradd --create-home --shell /bin/bash appuser \
+RUN mkdir -p /app/.cache/fastembed \
+    && useradd --create-home --shell /bin/bash appuser \
     && chown -R appuser:appuser /app
 USER appuser
 
