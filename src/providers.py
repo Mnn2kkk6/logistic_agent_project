@@ -42,14 +42,44 @@ from src.tools import (
 )
 from src import dataco_tools
 from src.rag import query_knowledge_base_tool
+from src.intent_router import filter_tools_for_intent
 
 _ACTIVE_DATASET_ID: ContextVar[str] = ContextVar("active_dataset_id", default="olist")
+_ACTIVE_INTENT: ContextVar[str] = ContextVar("active_intent", default="hybrid")
+
+_GENERAL_SYSTEM_PROMPT = (
+    "You are a helpful assistant for an AI Logistics Agent project. "
+    "Answer in the user's language, clearly and concisely. "
+    "For general knowledge, explain accurately without claiming to have queried the project data. "
+    "If a question asks for current dataset metrics but no data tools are available, say so rather than inventing numbers."
+)
+
 
 def _active_tools():
-    return dataco_tools.TOOLS if _ACTIVE_DATASET_ID.get() == "dataco" else TOOLS
+    available = dataco_tools.TOOLS if _ACTIVE_DATASET_ID.get() == "dataco" else TOOLS
+    # Do not expose irrelevant tool schemas to the model for the current intent.
+    return filter_tools_for_intent(available, _ACTIVE_INTENT.get())
+
 
 def _active_system_prompt():
-    return dataco_tools.SYSTEM_PROMPT if _ACTIVE_DATASET_ID.get() == "dataco" else SYSTEM_PROMPT
+    intent = _ACTIVE_INTENT.get()
+    if intent == "general":
+        return _GENERAL_SYSTEM_PROMPT
+
+    prompt = dataco_tools.SYSTEM_PROMPT if _ACTIVE_DATASET_ID.get() == "dataco" else SYSTEM_PROMPT
+    if intent == "data_ml":
+        prompt += (
+            "\n\nRouting constraint: This request is routed to the data/ML path. "
+            "Use only the tools exposed for the selected dataset. Do not call or request RAG, "
+            "and never invent dataset values."
+        )
+    elif intent == "hybrid":
+        prompt += (
+            "\n\nHybrid request: use the knowledge-base tool for documented definitions or processes, "
+            "and use dataset SQL/ML tools for calculated results. Use both only when the question needs both; "
+            "clearly distinguish source documentation from observed dataset results."
+        )
+    return prompt
 
 from src.marketing_tools import (
     get_marketing_funnel_summary,
@@ -205,6 +235,8 @@ def list_models() -> list:
 
 
 def _run_tool(name: str, args: dict) -> dict:
+    if name == "query_knowledge_base" and _ACTIVE_INTENT.get() in {"data_ml", "general"}:
+        return {"error": "Knowledge-base retrieval is disabled for this intent; answer using the current route only."}
     if _ACTIVE_DATASET_ID.get() == "dataco":
         funcs = {
             "describe_dataset": dataco_tools.describe_dataset,
@@ -229,7 +261,14 @@ def _run_tool(name: str, args: dict) -> dict:
         return {"error": str(e)}
 
 
-def chat_turn(model: str, history: list, user_message: str, max_tool_rounds: int = 8, dataset_id: str = "olist"):
+def chat_turn(
+    model: str,
+    history: list,
+    user_message: str,
+    max_tool_rounds: int = 8,
+    dataset_id: str = "olist",
+    intent: str | None = None,
+):
     """
     history: list[{"role": "user"|"assistant", "content": str}] — lịch sử canonical.
     Trả về: (reply_text, tool_calls_log, new_history)
@@ -244,6 +283,7 @@ def chat_turn(model: str, history: list, user_message: str, max_tool_rounds: int
         raise ProviderError(f"Chưa cấu hình biến môi trường {info['env_key']} cho model '{model}'.")
 
     token = _ACTIVE_DATASET_ID.set(dataset_id if dataset_id in {"olist", "dataco"} else "olist")
+    intent_token = _ACTIVE_INTENT.set(intent if intent in {"rag", "data_ml", "hybrid", "general"} else "hybrid")
     try:
         if info["provider"] == "local":
             if dataset_id == "dataco":
@@ -262,6 +302,7 @@ def chat_turn(model: str, history: list, user_message: str, max_tool_rounds: int
         else:  # pragma: no cover
             raise ProviderError(f"Provider '{info['provider']}' chưa được cài đặt.")
     finally:
+        _ACTIVE_INTENT.reset(intent_token)
         _ACTIVE_DATASET_ID.reset(token)
 
     new_history = history + [
@@ -281,18 +322,30 @@ def _gemini_tools():
         )
         for t in _active_tools()
     ]
-    return [types.Tool(function_declarations=declarations)]
+    return [types.Tool(function_declarations=declarations)] if declarations else None
 
 
 def _gemini_client():
     from google import genai
+    from google.genai import types
+
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    return genai.Client(api_key=api_key)
+    try:
+        timeout_ms = max(1000, int(float(os.environ.get("LLM_REQUEST_TIMEOUT_SECONDS", "45")) * 1000))
+    except ValueError:
+        timeout_ms = 45000
+    # The outer retry/router owns fallback policy; prevent hidden SDK retries from
+    # multiplying latency before the router can try another provider.
+    http_options = types.HttpOptions(
+        timeout=timeout_ms,
+        retry_options=types.HttpRetryOptions(attempts=1),
+    )
+    return genai.Client(api_key=api_key, http_options=http_options)
 
 
-def _gemini_generate_with_retry(client, model, contents, config, max_retries=4):
+def _gemini_generate_with_retry(client, model, contents, config, max_retries=3):
     from google.genai import errors
-    delay = 2.0
+    delay = 1.0
     for attempt in range(max_retries):
         try:
             return client.models.generate_content(model=model, contents=contents, config=config)
@@ -351,7 +404,17 @@ def _openai_compatible_tools():
 def _openai_compatible_turn(model, history, user_message, max_tool_rounds, api_key, base_url, provider_label):
     from openai import APIError, OpenAI
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    try:
+        timeout_seconds = max(1.0, float(os.environ.get("LLM_REQUEST_TIMEOUT_SECONDS", "45")))
+    except ValueError:
+        timeout_seconds = 45.0
+    # Disable SDK retries; model_router handles provider fallback explicitly.
+    client = OpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        timeout=timeout_seconds,
+        max_retries=0,
+    )
     messages = [{"role": "system", "content": _active_system_prompt()}]
     messages.extend({"role": t["role"], "content": t["content"]} for t in history)
     messages.append({"role": "user", "content": user_message})
@@ -359,9 +422,12 @@ def _openai_compatible_turn(model, history, user_message, max_tool_rounds, api_k
     tool_calls_log = []
     for _ in range(max_tool_rounds):
         try:
-            response = client.chat.completions.create(
-                model=model, messages=messages, tools=_openai_compatible_tools(), tool_choice="auto",
-            )
+            request_kwargs = {"model": model, "messages": messages}
+            available_tools = _openai_compatible_tools()
+            if available_tools:
+                request_kwargs["tools"] = available_tools
+                request_kwargs["tool_choice"] = "auto"
+            response = client.chat.completions.create(**request_kwargs)
         except APIError as e:
             raise ProviderError(f"{provider_label} API lỗi: {e}")
         except Exception as e:

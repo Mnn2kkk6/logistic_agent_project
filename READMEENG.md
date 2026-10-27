@@ -44,10 +44,11 @@ The project supports two datasets: **Olist Brazilian E-Commerce** and **DataCo S
 ### Agent and application
 
 - Tool/function calling connects natural-language requests to business functions.
-- RAG with LangChain, Qdrant, and multilingual embeddings retrieves documentation, returns citations, and abstains when evidence is insufficient.
-- The same Olist/DataCo chat invokes RAG as a tool for documentation questions; a direct RAG API remains available for integrations and tests.
-- The backend automatically selects an LLM based on task type, configured API keys, and fallback ordering.
-- The UI asks users to select a dataset, not a model. The router can try another provider when an earlier call fails.
+- RAG with LangChain, Qdrant, and multilingual FastEmbed retrieves documentation, returns source citations, and abstains when evidence is insufficient.
+- A deterministic intent classifier adds no LLM call: documentation-only questions use Direct RAG; data/ML questions hide the RAG tool schema; mixed questions retain both tool groups; general chat sends no tool schemas.
+- One Olist/DataCo chat UI remains in place. The direct RAG API is still available for integrations and tests.
+- The backend automatically selects an LLM based on task type, configured API keys, and fallback ordering, with bounded default retries.
+- Backend history is limited to the latest 16 messages, and logs include total chat latency plus RAG retrieval/generation timings for diagnosis.
 - A local rule-based fallback handles certain supported Olist question patterns without an external API call.
 - Flask web application, health endpoint, and multi-stage Docker build.
 
@@ -155,7 +156,7 @@ Current routing behavior:
 1. For Olist, first check whether the rule-based agent recognizes a supported question pattern.
 2. If an online LLM is needed, classify the task using lightweight rules as fast or reasoning-oriented.
 3. Filter candidates by configured API keys, try them in priority order, and fall back to another provider after a failure.
-4. Limit attempts using **MODEL_ROUTER_MAX_ATTEMPTS** (the code caps it at 8).
+4. Limit attempts using **MODEL_ROUTER_MAX_ATTEMPTS** (the code caps it at 8; `.env.example` defaults to 3).
 
 The provider integrations in the code include **Google Gemini, OpenAI, xAI, Groq, and OpenRouter**, plus a local rule-based fallback. Actual availability depends on configuration, API keys, quotas, network access, and provider/model availability. The README does not imply that every model is always available or free.
 
@@ -169,12 +170,12 @@ SQL outputs are capped. For DataCo, agent queries must use **dataco_orders**, an
 
 ## RAG Integrated into the AI Logistics Agent
 
-RAG is **a tool used by the Agent, not a separate chat UI**. Users ask everything at **http://localhost:5000**. The Agent chooses between SQL/data tools, ML tools, and RAG based on the question.
+RAG is integrated into the **single main chat UI** at **http://localhost:5000**. A deterministic intent classifier routes requests to the lightest suitable path without calling another LLM for classification.
 
-- Questions requiring order counts, metrics, or analytics go through the relevant data/SQL tools.
-- Questions about field definitions, project documentation, or procedures invoke `query_knowledge_base`, retrieve relevant evidence from Qdrant, and answer from the retrieved sources.
-- A question involving both metrics and documentation can use both types of tools in one conversation.
-- The Agent is instructed to cite source documents and acknowledge when the knowledge base does not contain relevant evidence. RAG does not replace SQL and must not invent numbers.
+- Documentation-only questions go directly to the existing RAG retrieval-and-generation path, skipping the agent's LLM tool-selection turn.
+- Questions requiring order counts, metrics, or analytics use the selected dataset's SQL/ML tools, with the RAG tool schema omitted.
+- Questions requiring both documentation and computed results use the hybrid agent with both tool groups available.
+- Direct RAG cites source paths and abstains when the indexed evidence is not relevant enough. RAG does not replace SQL and must not invent numbers.
 
 ### Build or refresh the document index
 
