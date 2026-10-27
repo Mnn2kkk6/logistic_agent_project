@@ -40,6 +40,17 @@ class RAGValidationTests(unittest.TestCase):
             self.assertIn("DescriptionDataCoSupplyChain.csv", names)
             self.assertNotIn("DataCoSupplyChainDataset.csv", names)
 
+    def test_document_point_id_is_a_deterministic_uuid(self):
+        document = type("Doc", (), {
+            "metadata": {"source": "README.md", "chunk_index": 3},
+            "page_content": "A sample chunk",
+        })()
+        first = rag._document_point_id(document)
+        second = rag._document_point_id(document)
+        self.assertEqual(first, second)
+        self.assertEqual(len(first), 36)
+        self.assertEqual(first.count("-"), 4)
+
     def test_answer_abstains_when_retrieval_is_below_threshold(self):
         weak_result = [{
             "page_content": "unrelated text",
