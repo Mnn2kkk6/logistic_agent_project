@@ -399,7 +399,19 @@ def _generate_grounded_answer(question: str, context: str) -> str:
         try:
             if kind == "gemini":
                 from google import genai
-                client = genai.Client(api_key=api_key)
+                from google.genai import types
+
+                try:
+                    timeout_ms = max(1000, int(float(os.environ.get("LLM_REQUEST_TIMEOUT_SECONDS", "45")) * 1000))
+                except ValueError:
+                    timeout_ms = 45000
+                client = genai.Client(
+                    api_key=api_key,
+                    http_options=types.HttpOptions(
+                        timeout=timeout_ms,
+                        retry_options=types.HttpRetryOptions(attempts=1),
+                    ),
+                )
                 model = model_override or os.environ.get("RAG_GEMINI_MODEL", "gemini-2.5-flash")
                 response = client.models.generate_content(
                     model=model,
@@ -417,7 +429,7 @@ def _generate_grounded_answer(question: str, context: str) -> str:
                 client = OpenAI(
                     api_key=api_key,
                     base_url=base_url,
-                    timeout=45.0,
+                    timeout=max(1.0, float(os.environ.get("LLM_REQUEST_TIMEOUT_SECONDS", "45"))),
                     max_retries=0,
                 )
                 response = client.chat.completions.create(
