@@ -44,10 +44,11 @@ Dự án hiện hỗ trợ hai bộ dữ liệu: **Olist Brazilian E-Commerce** 
 ### AI Agent và ứng dụng
 
 - Tool/function calling để kết nối câu hỏi ngôn ngữ tự nhiên với các hàm nghiệp vụ.
-- RAG với LangChain, Qdrant và embedding đa ngôn ngữ để truy xuất tài liệu, hiển thị citations và chủ động từ chối khi thiếu bằng chứng.
-- Trang Knowledge Assistant và API RAG riêng; tool truy xuất tri thức cũng dùng được trong chat agent Olist/DataCo.
-- Tự động chọn model LLM ở backend theo loại tác vụ, API key đã cấu hình và thứ tự dự phòng.
-- Thử model/provider tiếp theo khi lần gọi trước gặp lỗi; giao diện chat chỉ cho chọn dataset, không bắt người dùng chọn model.
+- RAG với LangChain, Qdrant và FastEmbed đa ngôn ngữ; câu trả lời dựa trên tài liệu có trích nguồn và chủ động từ chối khi thiếu bằng chứng.
+- Intent routing bằng quy tắc nhẹ, không gọi thêm LLM: câu hỏi tài liệu đi thẳng qua Direct RAG; câu hỏi số liệu/ML chỉ nhận tool của dataset; câu hỏi kết hợp giữ cả RAG và công cụ dữ liệu; hội thoại thông thường không nạp tool schema.
+- Một khung chat thống nhất cho Olist và DataCo; API RAG độc lập vẫn có cho tích hợp và kiểm thử.
+- Tự động chọn model LLM ở backend theo loại tác vụ, API key đã cấu hình và thứ tự dự phòng; giới hạn số lần thử mặc định để tránh chờ quá lâu khi provider lỗi.
+- Giới hạn lịch sử chat backend ở 16 tin nhắn gần nhất; ghi log độ trễ chat, truy xuất RAG và sinh câu trả lời để hỗ trợ chẩn đoán.
 - Rule-based local fallback xử lý một số mẫu câu Olist đã hỗ trợ mà không cần gọi API bên ngoài.
 - Flask web app, endpoint healthcheck và Docker multi-stage build.
 
