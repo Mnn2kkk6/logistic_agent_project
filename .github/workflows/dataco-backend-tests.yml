@@ -34,6 +34,10 @@ jobs:
           python-version: "3.12"
       - name: Install test dependencies
         run: python -m pip install --upgrade pip duckdb pandas
+      - name: Install and verify RAG dependencies
+        run: |
+          python -m pip install "langchain-core>=1.0,<2.0" "langchain-text-splitters>=1.0,<2.0" "langchain-qdrant>=1.1,<2.0" "fastembed>=0.7,<1.0" "qdrant-client>=1.15,<2.0" "pypdf>=5,<7"
+          python -c "from fastembed import TextEmbedding; from langchain_core.embeddings import Embeddings; from langchain_text_splitters import RecursiveCharacterTextSplitter; from langchain_qdrant import QdrantVectorStore; from qdrant_client import QdrantClient; print('RAG dependencies import OK')"
       - name: Compile Python source
         run: python -m compileall -q src tests
       - name: Check DataCo map JavaScript syntax
