@@ -41,6 +41,7 @@ from src.tools import (
     web_search,
 )
 from src import dataco_tools
+from src.rag import query_knowledge_base_tool
 
 _ACTIVE_DATASET_ID: ContextVar[str] = ContextVar("active_dataset_id", default="olist")
 
@@ -69,6 +70,7 @@ TOOL_FUNCTIONS = {
     "train_custom_model": train_custom_model,
     "web_search": web_search,
     "show_flow_on_map": show_flow_on_map,
+    "query_knowledge_base": query_knowledge_base_tool,
 }
 TOOL_FUNCTIONS.update({
     "get_marketing_funnel_summary": get_marketing_funnel_summary,
@@ -214,6 +216,7 @@ def _run_tool(name: str, args: dict) -> dict:
             "top_accessed_products": dataco_tools.top_accessed_products,
             "access_traffic_by_hour": dataco_tools.access_traffic_by_hour,
             "show_country_flow_map": dataco_tools.show_country_flow_map,
+            "query_knowledge_base": query_knowledge_base_tool,
         }
     else:
         funcs = TOOL_FUNCTIONS
