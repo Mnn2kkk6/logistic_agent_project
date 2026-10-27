@@ -36,6 +36,12 @@ _DOCUMENT_MARKERS = (
     "ten cot",
     "cac cot",
     "column names",
+    "architecture",
+    "project structure",
+    "field definition",
+    "data field",
+    "workflow",
+    "project documentation",
 )
 
 _DATA_MARKERS = (
@@ -73,6 +79,14 @@ _DATA_MARKERS = (
     "late rate",
     "delivery risk",
     "rui ro giao",
+    "calculate",
+    "count ",
+    "how many",
+    "average",
+    "total ",
+    "percentage",
+    "rank ",
+    "compare ",
 )
 
 _HYBRID_MARKERS = (
@@ -109,7 +123,7 @@ def _has_field_definition(text: str) -> bool:
     """Recognize questions asking what a snake_case dataset field means."""
     has_definition_phrase = any(
         phrase in text
-        for phrase in (" la gi", " nghia la gi", " y nghia ", " meaning of ", " mean?")
+        for phrase in (" la gi", " nghia la gi", " y nghia ", " meaning of ", " mean?", "what is ", "what does ", "definition of ", "define ")
     )
     has_field_name = bool(re.search(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", text))
     return has_definition_phrase and has_field_name
@@ -132,6 +146,17 @@ def _classify_one(message: str) -> str:
     if has_data_intent:
         return "data_ml"
     return "general"
+
+
+def filter_tools_for_intent(available_tools: list[dict[str, Any]], intent: str) -> list[dict[str, Any]]:
+    """Return only tool schemas appropriate to the current request intent."""
+    if intent == "general":
+        return []
+    if intent == "data_ml":
+        return [tool for tool in available_tools if tool.get("name") != "query_knowledge_base"]
+    if intent == "rag":
+        return [tool for tool in available_tools if tool.get("name") == "query_knowledge_base"]
+    return list(available_tools)
 
 
 def classify_intent(message: str, history: list[dict[str, Any]] | None = None) -> str:
