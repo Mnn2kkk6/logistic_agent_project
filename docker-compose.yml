@@ -1,6 +1,6 @@
 services:
   qdrant:
-    image: qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.20.0
     container_name: logistics-agent-qdrant
     ports:
       - "127.0.0.1:6333:6333"
@@ -30,18 +30,18 @@ services:
       QDRANT_LOCAL_PATH: ${QDRANT_LOCAL_PATH:-/app/.qdrant_storage}
       RAG_COLLECTION_NAME: ${RAG_COLLECTION_NAME:-logistics_knowledge}
       RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
-      RAG_EMBEDDING_DEVICE: ${RAG_EMBEDDING_DEVICE:-cpu}
+      RAG_EMBEDDING_THREADS: ${RAG_EMBEDDING_THREADS:-4}
+      FASTEMBED_CACHE_PATH: /app/.cache/fastembed
       RAG_MIN_RELEVANCE_SCORE: ${RAG_MIN_RELEVANCE_SCORE:-0.20}
       RAG_LLM_PROVIDER: ${RAG_LLM_PROVIDER:-auto}
       RAG_LLM_MODEL: ${RAG_LLM_MODEL:-}
-      HF_HOME: /app/.cache/huggingface
       FLASK_DEBUG: "0"
     volumes:
       # Mount dataset/model dạng read-only: có thể cập nhật data/model (vd train lại) mà
       # không cần build lại image — chỉ cần restart container.
       - ./data:/app/data:ro
       - ./models:/app/models:ro
-      - hf_cache:/app/.cache/huggingface
+      - fastembed_cache:/app/.cache/fastembed
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)"]
@@ -52,4 +52,4 @@ services:
 
 volumes:
   qdrant_storage:
-  hf_cache:
+  fastembed_cache:
