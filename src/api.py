@@ -94,6 +94,8 @@ def rag_status():
 @app.post("/api/v1/rag/query")
 def rag_query():
     payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"error": "Request body phải là JSON object."}), 400
     question = payload.get("question", payload.get("query", ""))
     top_k = payload.get("top_k", 4)
     try:
