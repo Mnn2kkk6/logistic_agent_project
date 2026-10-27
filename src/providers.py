@@ -42,6 +42,7 @@ from src.tools import (
 )
 from src import dataco_tools
 from src.rag import query_knowledge_base_tool
+from src.intent_router import filter_tools_for_intent
 
 _ACTIVE_DATASET_ID: ContextVar[str] = ContextVar("active_dataset_id", default="olist")
 _ACTIVE_INTENT: ContextVar[str] = ContextVar("active_intent", default="hybrid")
@@ -55,16 +56,9 @@ _GENERAL_SYSTEM_PROMPT = (
 
 
 def _active_tools():
-    intent = _ACTIVE_INTENT.get()
-    if intent == "general":
-        return []
     available = dataco_tools.TOOLS if _ACTIVE_DATASET_ID.get() == "dataco" else TOOLS
-    if intent == "data_ml":
-        # Don't expose RAG to a data-only request: the model cannot choose it by mistake.
-        return [tool for tool in available if tool.get("name") != "query_knowledge_base"]
-    if intent == "rag":
-        return [tool for tool in available if tool.get("name") == "query_knowledge_base"]
-    return available
+    # Do not expose irrelevant tool schemas to the model for the current intent.
+    return filter_tools_for_intent(available, _ACTIVE_INTENT.get())
 
 
 def _active_system_prompt():
