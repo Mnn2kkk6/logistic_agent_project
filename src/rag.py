@@ -108,6 +108,9 @@ def load_source_documents(base_dir: Path = BASE_DIR) -> list[Any]:
         suffix = path.suffix.lower()
         metadata = {"source": relative, "title": path.stem, "file_type": suffix.lstrip(".")}
         try:
+            if path.stat().st_size > MAX_SOURCE_BYTES:
+                logger.warning("Skipping oversized knowledge source: %s", relative)
+                continue
             if suffix in {".md", ".txt"}:
                 text = _read_text(path).strip()
                 if text:
@@ -156,17 +159,40 @@ def load_source_documents(base_dir: Path = BASE_DIR) -> list[Any]:
 @lru_cache(maxsize=1)
 def _get_embeddings():
     try:
-        from langchain_huggingface import HuggingFaceEmbeddings
+        from fastembed import TextEmbedding
+        from langchain_core.embeddings import Embeddings
     except ImportError as exc:
         raise RAGDependencyError(
-            "Thiếu langchain-huggingface/sentence-transformers. Cài dependencies trong requirements.txt."
+            "Thiếu fastembed hoặc langchain-core. Cài dependencies trong requirements.txt."
         ) from exc
+
     model_name = os.environ.get("RAG_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL).strip()
-    return HuggingFaceEmbeddings(
-        model_name=model_name,
-        model_kwargs={"device": os.environ.get("RAG_EMBEDDING_DEVICE", "cpu")},
-        encode_kwargs={"normalize_embeddings": True},
+    cache_dir = os.environ.get(
+        "FASTEMBED_CACHE_PATH",
+        str(BASE_DIR / ".fastembed_cache"),
     )
+    try:
+        threads = max(1, min(int(os.environ.get("RAG_EMBEDDING_THREADS", "4")), 32))
+    except ValueError:
+        threads = 4
+
+    class FastEmbedLangChainAdapter(Embeddings):
+        """Small LangChain adapter around FastEmbed's CPU-friendly ONNX models."""
+
+        def __init__(self):
+            self.encoder = TextEmbedding(
+                model_name=model_name,
+                cache_dir=cache_dir,
+                threads=threads,
+            )
+
+        def embed_documents(self, texts: list[str]) -> list[list[float]]:
+            return [vector.tolist() for vector in self.encoder.embed(texts)]
+
+        def embed_query(self, text: str) -> list[float]:
+            return self.embed_documents([text])[0]
+
+    return FastEmbedLangChainAdapter()
 
 
 @lru_cache(maxsize=1)
@@ -449,6 +475,10 @@ def get_rag_status() -> dict[str, Any]:
     collection = _collection_name()
     exists = client.collection_exists(collection_name=collection)
     count = client.count(collection_name=collection, exact=True).count if exists else 0
+    try:
+        provider_configured = bool(_llm_candidates())
+    except RAGConfigurationError:
+        provider_configured = False
     return {
         "ok": True,
         "indexed": bool(exists and count > 0),
@@ -456,5 +486,5 @@ def get_rag_status() -> dict[str, Any]:
         "points_count": int(count),
         "embedding_model": os.environ.get("RAG_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
         "qdrant_backend": "server" if os.environ.get("QDRANT_URL", "").strip() else "local-persistent",
-        "generation_provider_configured": bool(_llm_candidates()),
+        "generation_provider_configured": provider_configured,
     }
