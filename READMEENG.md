@@ -86,7 +86,7 @@ Screenshots are stored in the MyAgentDemo directory.
     Brazil state-flow map             Country-flow map
 ~~~
 
-**RAG path:** allowlisted documents → LangChain chunking → local multilingual embeddings → Qdrant → retriever → configured LLM generates an answer with citations.
+**RAG path:** allowlisted documents → LangChain chunking → local multilingual FastEmbed embeddings → Qdrant → retriever → configured LLM generates an answer with citations.
 
 **Olist path:** source CSV files → order-level aggregation and feature engineering → processed dataset → XGBoost models and DuckDB tools → Flask UI/API.
 
@@ -189,7 +189,7 @@ docker compose ps
 docker compose exec logistics-agent python -m src.rag_ingest
 ~~~
 
-Open http://localhost:5000/knowledge. The first ingestion downloads the multilingual embedding model and stores its cache in the hf_cache Docker volume. A configured LLM API key (Gemini, Groq, OpenRouter, OpenAI, or xAI) is required for answer generation; embeddings run locally.
+Open http://localhost:5000/knowledge. The first ingestion downloads the multilingual embedding model through FastEmbed (ONNX on CPU) and stores it in the fastembed_cache Docker volume. A configured LLM API key (Gemini, Groq, OpenRouter, OpenAI, or xAI) is required for answer generation; embeddings run locally.
 
 ### Native Python
 
@@ -222,7 +222,7 @@ The request body accepts question (or query) and top_k from 1 to 8. Sources incl
 
 ### Configuration and limitations
 
-- RAG_EMBEDDING_MODEL defaults to sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 and is downloaded on first indexing.
+- RAG_EMBEDDING_MODEL defaults to sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2; FastEmbed/ONNX downloads it on first indexing without requiring PyTorch.
 - RAG_LLM_PROVIDER=auto selects the first configured provider; supported values are gemini, groq, openrouter, openai, and xai. RAG_LLM_MODEL can override the default model.
 - RAG_MIN_RELEVANCE_SCORE controls evidence abstention. Evaluate it with representative questions before operational use.
 - Only index approved documents. Never commit secrets, personal data, or confidential company documents to a public repository.
