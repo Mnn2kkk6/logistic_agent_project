@@ -14,7 +14,7 @@ The project supports two datasets: **Olist Brazilian E-Commerce** and **DataCo S
 - [Datasets](#datasets)
 - [Machine Learning on Olist](#machine-learning-on-olist)
 - [AI Agent and Automatic LLM Routing](#ai-agent-and-automatic-llm-routing)
-- [RAG and Logistics Knowledge Assistant](#rag-and-logistics-knowledge-assistant)
+- [RAG Integrated into the AI Logistics Agent](#rag-integrated-into-the-ai-logistics-agent)
 - [Logistics Maps](#logistics-maps)
 - [API Reference](#api-reference)
 - [Local Setup](#local-setup)
@@ -45,7 +45,7 @@ The project supports two datasets: **Olist Brazilian E-Commerce** and **DataCo S
 
 - Tool/function calling connects natural-language requests to business functions.
 - RAG with LangChain, Qdrant, and multilingual embeddings retrieves documentation, returns citations, and abstains when evidence is insufficient.
-- A dedicated Knowledge Assistant UI and RAG API are available; the existing Olist/DataCo chat agents can also call the retrieval tool.
+- The same Olist/DataCo chat invokes RAG as a tool for documentation questions; a direct RAG API remains available for integrations and tests.
 - The backend automatically selects an LLM based on task type, configured API keys, and fallback ordering.
 - The UI asks users to select a dataset, not a model. The router can try another provider when an earlier call fails.
 - A local rule-based fallback handles certain supported Olist question patterns without an external API call.
@@ -167,50 +167,45 @@ The provider integrations in the code include **Google Gemini, OpenAI, xAI, Groq
 
 SQL outputs are capped. For DataCo, agent queries must use **dataco_orders**, and several keywords/functions that could modify data or read arbitrary files are blocked. These are application-level safeguards; they do not replace authentication, authorization, and infrastructure security in production.
 
-## RAG and Logistics Knowledge Assistant
+## RAG Integrated into the AI Logistics Agent
 
-The RAG module supports questions about documentation, field definitions, and process guides. It does not replace DuckDB/SQL for numerical questions or the existing ML models for delivery-risk predictions.
+RAG is **a tool used by the Agent, not a separate chat UI**. Users ask everything at **http://localhost:5000**. The Agent chooses between SQL/data tools, ML tools, and RAG based on the question.
 
-### Pipeline
+- Questions requiring order counts, metrics, or analytics go through the relevant data/SQL tools.
+- Questions about field definitions, project documentation, or procedures invoke `query_knowledge_base`, retrieve relevant evidence from Qdrant, and answer from the retrieved sources.
+- A question involving both metrics and documentation can use both types of tools in one conversation.
+- The Agent is instructed to cite source documents and acknowledge when the knowledge base does not contain relevant evidence. RAG does not replace SQL and must not invent numbers.
 
-1. Load only allowlisted sources: bilingual READMEs, DataCo field descriptions, model metadata, and curated files under knowledge_base.
-2. Use LangChain to split content into overlapping chunks while preserving source metadata.
-3. Generate multilingual embeddings locally and store text/vector payloads in Qdrant.
-4. Retrieve relevant chunks, pass evidence to the configured LLM, and return citations.
-5. If no chunk reaches the configured similarity threshold, abstain rather than guessing.
+### Build or refresh the document index
 
-Raw Olist/DataCo order CSVs are deliberately excluded. knowledge_base/sample_delivery_sop.md is an invented demo SOP, not an official Olist or DataCo policy.
+Only approved sources are indexed: the bilingual READMEs, DataCo field descriptions, model metadata, and curated documents under `knowledge_base/`. Raw Olist/DataCo order CSVs are deliberately excluded. `knowledge_base/sample_delivery_sop.md` is a fictional demo SOP, not an official Olist or DataCo policy.
 
-### Docker quick start
+**Docker:**
 
 ~~~bash
 docker compose up --build -d
-docker compose ps
 docker compose exec logistics-agent python -m src.rag_ingest
 ~~~
 
-Open http://localhost:5000/knowledge. The first ingestion downloads the multilingual embedding model through FastEmbed (ONNX on CPU) and stores it in the fastembed_cache Docker volume. A configured LLM API key (Gemini, Groq, OpenRouter, OpenAI, or xAI) is required for answer generation; embeddings run locally.
+Open **http://localhost:5000** and ask a question directly, for example: “Is DataCo's `late_delivery_risk` field a model-predicted probability?” The first indexing run downloads the multilingual embedding model through FastEmbed (ONNX on CPU) and caches it in the `fastembed_cache` volume.
 
-### Native Python
-
-Install requirements.txt. To use persistent local Qdrant mode, leave QDRANT_URL unset; vectors are stored under .qdrant_storage by default. Then run:
+**Native Python:**
 
 ~~~powershell
 python -m src.rag_ingest
 python -m src.api
 ~~~
 
-Open http://localhost:5000/knowledge. Running Python directly does not automatically load .env, so configure the LLM API key in your terminal or IDE as described in Local Setup.
+Then open **http://localhost:5000**. Native Python execution does not automatically load `.env`; configure the LLM API key in your terminal or IDE. Embeddings run locally, while answer generation requires a configured LLM provider.
 
 ### RAG API
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| GET | /knowledge | Knowledge Assistant UI |
-| GET | /api/v1/rag/status | Index status, chunk count, and backend |
-| POST | /api/v1/rag/query | Document-grounded Q&A with sources |
+| GET | /api/v1/rag/status | Check the index, chunk count, and backend configuration |
+| POST | /api/v1/rag/query | Direct document-Q&A API with sources for integrations or tests |
 
-Example request:
+Example direct API call (this is not a second chat interface):
 
 ~~~bash
 curl -X POST http://localhost:5000/api/v1/rag/query \
@@ -218,15 +213,15 @@ curl -X POST http://localhost:5000/api/v1/rag/query \
   -d '{"question":"Is late_delivery_risk a model-predicted probability?","top_k":4}'
 ~~~
 
-The request body accepts question (or query) and top_k from 1 to 8. Sources include their path, similarity score, and excerpt. The existing chat agent also exposes the query_knowledge_base tool for document questions; quantitative analytics should still use SQL.
+The request accepts `question` (or `query`) and `top_k` from 1 to 8. Sources include paths, similarity scores, and excerpts. The legacy `/knowledge` URL redirects to the main Agent chat.
 
 ### Configuration and limitations
 
-- RAG_EMBEDDING_MODEL defaults to sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2; FastEmbed/ONNX downloads it on first indexing without requiring PyTorch.
-- RAG_LLM_PROVIDER=auto selects the first configured provider; supported values are gemini, groq, openrouter, openai, and xai. RAG_LLM_MODEL can override the default model.
-- RAG_MIN_RELEVANCE_SCORE controls evidence abstention. Evaluate it with representative questions before operational use.
-- Only index approved documents. Never commit secrets, personal data, or confidential company documents to a public repository.
-- The demo does not yet implement per-user authentication or document-level ACLs. Do not expose private knowledge bases to the public Internet until access controls are implemented.
+- `RAG_EMBEDDING_MODEL` defaults to `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`; FastEmbed uses ONNX Runtime and does not require PyTorch.
+- `RAG_LLM_PROVIDER=auto` selects a configured provider; supported values are `gemini`, `groq`, `openrouter`, `openai`, and `xai`. `RAG_LLM_MODEL` is optional.
+- `RAG_MIN_RELEVANCE_SCORE` controls evidence abstention; evaluate it against representative questions.
+- Index approved documents only. Never commit API secrets, personal data, or confidential company documents to a public repository.
+- The demo has no per-user authentication or document-level ACLs yet. Do not expose a private knowledge base to the public Internet until access controls are implemented.
 
 ## Logistics Maps
 
@@ -406,7 +401,7 @@ docker compose logs -f logistics-agent
 
 4. Open **http://localhost:5000**. Health check: **http://localhost:5000/health**.
 
-For RAG, run the ingest command above and open **http://localhost:5000/knowledge**.
+For RAG, run the ingest command above and open **http://localhost:5000**.
 
 Stop the service:
 
