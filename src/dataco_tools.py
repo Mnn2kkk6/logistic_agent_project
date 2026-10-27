@@ -296,6 +296,7 @@ show_country_flow_map.
 Access-log tools chỉ trả thống kê tổng hợp; không yêu cầu hoặc tiết lộ IP, URL, email, tên, mật khẩu, địa chỉ đường phố hoặc mã bưu chính.
 Late_delivery_risk là nhãn đã có trong dataset, không phải dự đoán ML. Không dùng model Olist cho DataCo.
 Country flow map vẽ Customer Country → Order Country như proxy theo metadata hiện có; không khẳng định đó là tuyến kho/seller đã xác minh.
+Với câu hỏi về định nghĩa trường dữ liệu, quy trình hoặc tài liệu dự án, dùng query_knowledge_base để truy xuất bằng chứng và dẫn nguồn; không dùng RAG thay cho SQL thống kê.
 Trả lời bằng tiếng Việt, nêu phép tính ngắn gọn, không bịa dữ liệu. Nếu access log chưa có file cục bộ thì báo công cụ đó không khả dụng.
 """
 
@@ -309,4 +310,5 @@ TOOLS = [
     {"name": "top_accessed_products", "description": "Nếu tokenized_access_logs.csv có sẵn cục bộ, trả top sản phẩm/danh mục theo lượt truy cập; không trả IP hoặc URL.", "input_schema": {"type": "object", "properties": {"n": {"type": "integer", "default": 10}}}},
     {"name": "access_traffic_by_hour", "description": "Nếu access log có sẵn cục bộ, thống kê lượt truy cập theo giờ; không trả IP hoặc URL.", "input_schema": {"type": "object", "properties": {}}},
     {"name": "show_country_flow_map", "description": "Mở bản đồ luồng quốc gia DataCo, có thể focus vào origin_country/destination_country. metric: orders, late_risk_pct, avg_shipping_days, sales.", "input_schema": {"type": "object", "properties": {"origin_country": {"type": "string"}, "destination_country": {"type": "string"}, "metric": {"type": "string", "enum": ["orders", "late_risk_pct", "avg_shipping_days", "sales"]}}}},
+    {"name": "query_knowledge_base", "description": "Tìm kiếm tài liệu đã lập chỉ mục để trả lời câu hỏi định nghĩa, quy trình hoặc tài liệu dự án; không dùng cho thống kê cần SQL.", "input_schema": {"type": "object", "properties": {"query": {"type": "string"}, "top_k": {"type": "integer", "default": 4}}, "required": ["query"]}},
 ]
