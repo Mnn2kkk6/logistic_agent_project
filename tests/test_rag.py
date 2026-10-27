@@ -51,6 +51,60 @@ class RAGValidationTests(unittest.TestCase):
         self.assertEqual(len(first), 36)
         self.assertEqual(first.count("-"), 4)
 
+    def test_qdrant_vector_store_accepts_deterministic_point_ids(self):
+        from langchain_core.documents import Document
+        from langchain_core.embeddings import Embeddings
+        from langchain_qdrant import QdrantVectorStore
+        from qdrant_client import QdrantClient, models
+
+        class TinyEmbeddings(Embeddings):
+            @staticmethod
+            def _vector(text):
+                lowered = text.lower()
+                return [
+                    float("delivery" in lowered),
+                    float("late" in lowered),
+                    float("warehouse" in lowered),
+                    1.0,
+                ]
+
+            def embed_documents(self, texts):
+                return [self._vector(text) for text in texts]
+
+            def embed_query(self, text):
+                return self._vector(text)
+
+        client = QdrantClient(":memory:")
+        collection = "rag_unit_test"
+        client.create_collection(
+            collection_name=collection,
+            vectors_config=models.VectorParams(
+                size=4,
+                distance=models.Distance.COSINE,
+            ),
+        )
+        store = QdrantVectorStore(
+            client=client,
+            collection_name=collection,
+            embedding=TinyEmbeddings(),
+        )
+        documents = [
+            Document(
+                page_content="Check late delivery events.",
+                metadata={"source": "sop.md", "chunk_index": 0},
+            ),
+            Document(
+                page_content="Warehouse capacity planning.",
+                metadata={"source": "warehouse.md", "chunk_index": 1},
+            ),
+        ]
+        ids = [rag._document_point_id(doc) for doc in documents]
+        store.add_documents(documents=documents, ids=ids)
+        matches = store.similarity_search_with_score("late delivery", k=1)
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0][0].metadata["source"], "sop.md")
+        client.close()
+
     def test_answer_abstains_when_retrieval_is_below_threshold(self):
         weak_result = [{
             "page_content": "unrelated text",
