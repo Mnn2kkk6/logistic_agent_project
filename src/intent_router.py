@@ -62,11 +62,6 @@ _DOCUMENT_MARKERS = (
     "trong repo",
     "trong du an",
     "cua repo",
-    "gioi thieu ",
-    "describe ",
-    "explain ",
-    "how does ",
-    "tell me about ",
 )
 
 _DATA_MARKERS = (
@@ -182,13 +177,24 @@ def _normalize(text: str) -> str:
 
 
 def _has_field_definition(text: str) -> bool:
-    """Recognize questions asking what a snake_case dataset field means."""
+    """Recognize a request to define or interpret a dataset field/metric."""
     has_definition_phrase = any(
         phrase in text
-        for phrase in (" la gi", " nghia la gi", " y nghia ", " meaning of ", " mean?", "what is ", "what does ", "definition of ", "define ", "explain ", "giai thich ", "describe ")
+        for phrase in (
+            " la gi", " nghia la gi", " y nghia ", " meaning of ", " mean?",
+            "what is ", "what does ", "definition of ", "define ", "explain ",
+            "giai thich ", "describe ", "how is ", "how are ", "how does ",
+            "how do ", "calculated", "defined", "interpret ",
+        )
     )
-    has_field_name = bool(re.search(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", text))
-    return has_definition_phrase and has_field_name
+    has_snake_case_field = bool(re.search(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", text))
+    known_field_concepts = (
+        "late delivery risk", "delivery risk", "late delivery rate",
+        "shipping mode", "order status", "delivery days", "shipping days",
+        "order count", "order value", "customer country", "order country",
+    )
+    has_known_field = any(term in text for term in known_field_concepts)
+    return has_definition_phrase and (has_snake_case_field or has_known_field)
 
 
 def _classify_one(message: str) -> str:
@@ -204,7 +210,11 @@ def _classify_one(message: str) -> str:
     )
     asks_for_definition = any(
         phrase in text
-        for phrase in (" la gi", " what is ", "what is", " nghia la gi", "meaning of ")
+        for phrase in (
+            " la gi", "what is", "what are", "what does", " nghia la gi",
+            "meaning of", "how does", "how is", "how are", "gioi thieu ",
+            "describe ", "explain ", "tell me about ", "how it works",
+        )
     )
     has_document_intent = has_document_intent or (has_named_project and asks_for_definition)
     has_strong_data_intent = any(marker in text for marker in _DATA_MARKERS)
