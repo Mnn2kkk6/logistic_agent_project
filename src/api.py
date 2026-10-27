@@ -29,7 +29,7 @@ import os
 import uuid
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, send_from_directory, session
+from flask import Flask, jsonify, redirect, render_template, request, send_from_directory, session
 
 from src import providers, tools, dataco_map
 from src.dataset_registry import DEFAULT_DATASET_ID, get_dataset, list_datasets
@@ -76,8 +76,8 @@ def health():
 
 @app.get("/knowledge")
 def knowledge_page():
-    """Standalone UI for grounded document Q&A."""
-    return render_template("rag.html")
+    """Keep old bookmarks working, but route users to the unified Agent chat."""
+    return redirect("/")
 
 
 @app.get("/api/v1/rag/status")
