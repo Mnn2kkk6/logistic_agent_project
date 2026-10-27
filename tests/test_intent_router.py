@@ -51,6 +51,21 @@ class IntentRouterTests(unittest.TestCase):
             "rag",
         )
 
+    def test_data_question_about_highest_revenue_routes_to_data(self):
+        self.assertEqual(
+            classify_intent("Which countries have the highest revenue?"),
+            "data_ml",
+        )
+
+    def test_data_question_about_country_orders_routes_to_data(self):
+        self.assertEqual(
+            classify_intent("What are the top 5 countries by orders?"),
+            "data_ml",
+        )
+
+    def test_project_introduction_routes_to_rag(self):
+        self.assertEqual(classify_intent("Giới thiệu bộ dữ liệu DataCo"), "rag")
+
     def test_project_workflow_question_routes_to_rag(self):
         self.assertEqual(classify_intent("How does this project work?"), "rag")
 
