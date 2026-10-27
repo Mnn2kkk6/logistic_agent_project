@@ -51,5 +51,5 @@ class IntentRouterTests(unittest.TestCase):
         self.assertEqual(classify_intent("Còn theo quý thì sao?", history), "data_ml")
 
 
-if __class__ == "__main__":
+if __name__ == "__main__":
     unittest.main()
