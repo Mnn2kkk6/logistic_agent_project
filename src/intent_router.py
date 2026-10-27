@@ -72,7 +72,7 @@ _DATA_MARKERS = (
     "correlation",
     "late rate",
     "delivery risk",
-    "rủi ro giao",
+    "rui ro giao",
 )
 
 _HYBRID_MARKERS = (
