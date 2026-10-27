@@ -34,6 +34,7 @@ from flask import Flask, jsonify, render_template, request, send_from_directory,
 from src import providers, tools, dataco_map
 from src.dataset_registry import DEFAULT_DATASET_ID, get_dataset, list_datasets
 from src.model_router import chat_turn_auto
+from src import rag
 from src.marketing_tools import (
     get_marketing_funnel_summary,
     get_marketing_channel_performance,
@@ -71,6 +72,40 @@ def index():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/knowledge")
+def knowledge_page():
+    """Standalone UI for grounded document Q&A."""
+    return render_template("rag.html")
+
+
+@app.get("/api/v1/rag/status")
+def rag_status():
+    try:
+        return jsonify(rag.get_rag_status())
+    except rag.RAGError as exc:
+        return jsonify({"error": str(exc)}), 503
+    except Exception:  # Qdrant can be temporarily unavailable during container startup.
+        app.logger.exception("RAG status check failed")
+        return jsonify({"error": "Kho tri thức chưa sẵn sàng. Kiểm tra Qdrant và cấu hình RAG."}), 503
+
+
+@app.post("/api/v1/rag/query")
+def rag_query():
+    payload = request.get_json(silent=True) or {}
+    question = payload.get("question", payload.get("query", ""))
+    top_k = payload.get("top_k", 4)
+    try:
+        result = rag.answer_question(question, top_k=top_k)
+        return jsonify(result)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except rag.RAGError as exc:
+        return jsonify({"error": str(exc)}), 503
+    except Exception:  # noqa: BLE001 — keep internal details in server logs, not API responses.
+        app.logger.exception("RAG query failed")
+        return jsonify({"error": "Không thể xử lý câu hỏi RAG. Kiểm tra log backend để biết chi tiết."}), 500
 
 
 @app.get("/models")
