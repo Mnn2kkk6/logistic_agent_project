@@ -97,7 +97,6 @@ _DATA_MARKERS = (
     "tuong quan",
     "correlation",
     "late rate",
-    "delivery risk",
     "rui ro giao",
     "calculate",
     "count ",
