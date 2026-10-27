@@ -1,6 +1,6 @@
 import unittest
 
-from src.intent_router import classify_intent
+from src.intent_router import classify_intent, filter_tools_for_intent
 
 
 class IntentRouterTests(unittest.TestCase):
@@ -32,6 +32,26 @@ class IntentRouterTests(unittest.TestCase):
 
     def test_general_question_does_not_trigger_rag(self):
         self.assertEqual(classify_intent("Xin chào, bạn có thể giúp gì?"), "general")
+
+    def test_english_project_architecture_question_routes_to_rag(self):
+        self.assertEqual(classify_intent("Explain the project architecture from the README"), "rag")
+
+    def test_english_field_definition_routes_to_rag(self):
+        self.assertEqual(classify_intent("What does late_delivery_risk mean?"), "rag")
+
+    def test_tool_schemas_are_filtered_by_intent(self):
+        tools = [
+            {"name": "query_dataset_sql"},
+            {"name": "query_knowledge_base"},
+            {"name": "predict_new_order"},
+        ]
+        data_tools = filter_tools_for_intent(tools, "data_ml")
+        self.assertEqual(
+            {tool["name"] for tool in data_tools},
+            {"query_dataset_sql", "predict_new_order"},
+        )
+        self.assertEqual(filter_tools_for_intent(tools, "general"), [])
+        self.assertEqual(filter_tools_for_intent(tools, "hybrid"), tools)
 
     def test_short_follow_up_inherits_document_intent(self):
         history = [
