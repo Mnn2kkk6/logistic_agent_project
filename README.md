@@ -14,6 +14,7 @@ Dự án hiện hỗ trợ hai bộ dữ liệu: **Olist Brazilian E-Commerce** 
 - [Bộ dữ liệu](#bộ-dữ-liệu)
 - [Machine Learning với Olist](#machine-learning-với-olist)
 - [AI Agent và tự động chọn LLM](#ai-agent-và-tự-động-chọn-llm)
+- [RAG và Logistics Knowledge Assistant](#rag-và-logistics-knowledge-assistant)
 - [Bản đồ logistics](#bản-đồ-logistics)
 - [API](#api)
 - [Cài đặt và chạy local](#cài-đặt-và-chạy-local)
@@ -43,6 +44,8 @@ Dự án hiện hỗ trợ hai bộ dữ liệu: **Olist Brazilian E-Commerce** 
 ### AI Agent và ứng dụng
 
 - Tool/function calling để kết nối câu hỏi ngôn ngữ tự nhiên với các hàm nghiệp vụ.
+- RAG với LangChain, Qdrant và embedding đa ngôn ngữ để truy xuất tài liệu, hiển thị citations và chủ động từ chối khi thiếu bằng chứng.
+- Trang Knowledge Assistant và API RAG riêng; tool truy xuất tri thức cũng dùng được trong chat agent Olist/DataCo.
 - Tự động chọn model LLM ở backend theo loại tác vụ, API key đã cấu hình và thứ tự dự phòng.
 - Thử model/provider tiếp theo khi lần gọi trước gặp lỗi; giao diện chat chỉ cho chọn dataset, không bắt người dùng chọn model.
 - Rule-based local fallback xử lý một số mẫu câu Olist đã hỗ trợ mà không cần gọi API bên ngoài.
@@ -82,6 +85,8 @@ Dự án hiện hỗ trợ hai bộ dữ liệu: **Olist Brazilian E-Commerce** 
           |                                |
    Olist state-flow map              Country-flow map
 ~~~
+
+**Luồng RAG:** tài liệu được allowlist → chunking bằng LangChain → embedding đa ngôn ngữ chạy local → Qdrant → retriever → LLM hiện có tạo câu trả lời kèm nguồn.
 
 **Luồng xử lý Olist:** CSV gốc → gộp đơn và tạo đặc trưng → dataset đã xử lý → model XGBoost và các công cụ DuckDB → Flask UI/API.
 
@@ -161,6 +166,68 @@ Các tích hợp trong code gồm **Google Gemini, OpenAI, xAI, Groq và OpenRou
 **DataCo:** mô tả dataset; tra cứu đơn; thống kê khu vực/quốc gia; so sánh shipping mode; truy vấn SQL trên bảng đã làm sạch; thống kê access log tùy chọn; xem luồng quốc gia.
 
 Truy vấn SQL được giới hạn số dòng trả về. Với DataCo, agent chỉ được truy vấn bảng **dataco_orders** và bị chặn nhiều từ khóa/hàm có khả năng thay đổi dữ liệu hoặc đọc file tùy ý. Đây là lớp bảo vệ ở mức ứng dụng, không thay thế việc kiểm soát quyền truy cập, xác thực và bảo vệ hạ tầng khi triển khai production.
+
+## RAG và Logistics Knowledge Assistant
+
+Module RAG bổ sung hỏi đáp trên tài liệu, không thay thế DuckDB/SQL hoặc các model ML. Dữ liệu số có cấu trúc vẫn phải được tính qua tool phù hợp; RAG dùng cho định nghĩa, tài liệu dự án và quy trình.
+
+### Luồng xử lý
+
+1. Chọn các nguồn tài liệu được cho phép: README song ngữ, mô tả trường DataCo, metadata model và tài liệu trong thư mục knowledge_base.
+2. LangChain đọc nội dung, chia thành chunks có overlap và giữ metadata nguồn.
+3. Embedding đa ngôn ngữ chạy local; Qdrant lưu vector và nội dung.
+4. Retriever lấy các đoạn liên quan, LLM được cấu hình hiện có tổng hợp câu trả lời và citations.
+5. Nếu không có đoạn nào đạt ngưỡng tương đồng, RAG trả lời rằng chưa đủ bằng chứng thay vì đoán.
+
+CSV đơn hàng Olist/DataCo thô không được ingest. File knowledge_base/sample_delivery_sop.md là SOP hư cấu để demo, không phải chính sách chính thức của Olist/DataCo.
+
+### Chạy bằng Docker
+
+~~~bash
+docker compose up --build -d
+docker compose ps
+docker compose exec logistics-agent python -m src.rag_ingest
+~~~
+
+Mở trang hỏi đáp tại http://localhost:5000/knowledge. Lần đầu ingest sẽ tải embedding model đa ngôn ngữ và lưu cache vào Docker volume hf_cache. Những lần sau có thể dùng lại cache. Cần có ít nhất một LLM API key đã cấu hình (Gemini, Groq, OpenRouter, OpenAI hoặc xAI) để sinh câu trả lời; embedding được tính local.
+
+### Chạy Python trực tiếp
+
+Cài các gói trong requirements.txt. Để dùng Qdrant local persistent, đảm bảo biến môi trường QDRANT_URL không được đặt; kho sẽ được tạo tại .qdrant_storage mặc định. Sau đó chạy:
+
+~~~powershell
+# Windows PowerShell
+python -m src.rag_ingest
+python -m src.api
+~~~
+
+Mở http://localhost:5000/knowledge. Python chạy trực tiếp không tự đọc .env; đặt API key cho LLM trong terminal/IDE như hướng dẫn ở phần cài đặt.
+
+### RAG API
+
+| Method | Endpoint | Mục đích |
+|---|---|---|
+| GET | /knowledge | Giao diện Knowledge Assistant |
+| GET | /api/v1/rag/status | Trạng thái index, số chunks và cấu hình backend |
+| POST | /api/v1/rag/query | Hỏi đáp trên kho tài liệu, trả lời kèm nguồn |
+
+Ví dụ request:
+
+~~~bash
+curl -X POST http://localhost:5000/api/v1/rag/query \
+  -H "Content-Type: application/json" \
+  -d '{"question":"Trường late_delivery_risk có phải xác suất model dự đoán không?","top_k":4}'
+~~~
+
+API nhận JSON gồm question (hoặc query) và top_k từ 1 đến 8. Mỗi nguồn trả về có đường dẫn tài liệu, similarity score và excerpt để kiểm chứng. Chat agent hiện tại cũng có tool query_knowledge_base cho câu hỏi về tài liệu; câu hỏi thống kê vẫn nên đi qua SQL.
+
+### Tuỳ chỉnh và giới hạn
+
+- RAG_EMBEDDING_MODEL mặc định là sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2; model được tải khi indexing lần đầu.
+- RAG_LLM_PROVIDER=auto chọn provider đầu tiên có API key; có thể chọn gemini, groq, openrouter, openai hoặc xai. RAG_LLM_MODEL là tuỳ chọn override model.
+- RAG_MIN_RELEVANCE_SCORE điều chỉnh ngưỡng từ chối khi nguồn không đủ liên quan. Cần đánh giá trên bộ câu hỏi thực tế trước khi dùng nghiệp vụ.
+- Chỉ lập chỉ mục tài liệu đã được chọn. Không commit bí mật, dữ liệu cá nhân hoặc tài liệu doanh nghiệp chưa được phép chia sẻ vào repository.
+- Demo hiện chưa có xác thực người dùng/ACL theo tài liệu; không triển khai kho tài liệu riêng tư ra Internet nếu chưa bổ sung kiểm soát truy cập.
 
 ## Bản đồ logistics
 
@@ -342,6 +409,8 @@ docker compose logs -f logistics-agent
 
 4. Truy cập **http://localhost:5000**. Healthcheck là **http://localhost:5000/health**.
 
+Để dùng RAG, chạy lệnh ingest trong mục RAG ở trên rồi mở **http://localhost:5000/knowledge**.
+
 Dừng ứng dụng:
 
 ~~~bash
@@ -379,6 +448,10 @@ Một bộ kiểm tra DataCo có tại **tests/test_dataco_map.py**. Chạy bằ
 python -m unittest discover -s tests -p "test_dataco_map.py" -v
 ~~~
 
+~~~bash
+python -m unittest discover -s tests -p "test_rag.py" -v
+~~~
+
 Workflow GitHub Actions **.github/workflows/dataco-backend-tests.yml** có các bước compile Python, kiểm tra cú pháp JavaScript của bản đồ DataCo và chạy các test tương ứng khi trigger theo cấu hình workflow.
 
 ## Cấu trúc dự án
@@ -388,8 +461,11 @@ Workflow GitHub Actions **.github/workflows/dataco-backend-tests.yml** có các 
 ├── data/                     # CSV Olist, dataset đã xử lý, GeoJSON Brazil
 ├── data_2/                   # CSV DataCo và mô tả dữ liệu
 ├── models/                   # XGBoost models, metadata, history lookup
+├── knowledge_base/           # Tài liệu tri thức curated; SOP mẫu được ghi rõ là giả lập
 ├── src/
 │   ├── api.py                # Flask UI/API và route bản đồ
+│   ├── rag.py                # Ingest, embedding, Qdrant retrieval, citations và grounded generation
+│   ├── rag_ingest.py         # CLI tạo/rebuild index
 │   ├── agent.py              # Agent orchestration
 │   ├── agent_gemini.py       # Tích hợp Gemini
 │   ├── providers.py           # Provider adapters và tool calling
