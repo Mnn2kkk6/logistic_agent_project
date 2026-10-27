@@ -66,6 +66,15 @@ class IntentRouterTests(unittest.TestCase):
     def test_project_introduction_routes_to_rag(self):
         self.assertEqual(classify_intent("Giới thiệu bộ dữ liệu DataCo"), "rag")
 
+    def test_unrelated_explanation_stays_general(self):
+        self.assertEqual(classify_intent("Explain why rain forms"), "general")
+
+    def test_metric_explanation_routes_to_rag(self):
+        self.assertEqual(
+            classify_intent("How does late delivery risk work?"),
+            "rag",
+        )
+
     def test_project_workflow_question_routes_to_rag(self):
         self.assertEqual(classify_intent("How does this project work?"), "rag")
 
