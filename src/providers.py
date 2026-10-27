@@ -327,8 +327,20 @@ def _gemini_tools():
 
 def _gemini_client():
     from google import genai
+    from google.genai import types
+
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-    return genai.Client(api_key=api_key)
+    try:
+        timeout_ms = max(1000, int(float(os.environ.get("LLM_REQUEST_TIMEOUT_SECONDS", "45")) * 1000))
+    except ValueError:
+        timeout_ms = 45000
+    # The outer retry/router owns fallback policy; prevent hidden SDK retries from
+    # multiplying latency before the router can try another provider.
+    http_options = types.HttpOptions(
+        timeout=timeout_ms,
+        retry_options=types.HttpRetryOptions(attempts=1),
+    )
+    return genai.Client(api_key=api_key, http_options=http_options)
 
 
 def _gemini_generate_with_retry(client, model, contents, config, max_retries=3):
@@ -392,7 +404,17 @@ def _openai_compatible_tools():
 def _openai_compatible_turn(model, history, user_message, max_tool_rounds, api_key, base_url, provider_label):
     from openai import APIError, OpenAI
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    try:
+        timeout_seconds = max(1.0, float(os.environ.get("LLM_REQUEST_TIMEOUT_SECONDS", "45")))
+    except ValueError:
+        timeout_seconds = 45.0
+    # Disable SDK retries; model_router handles provider fallback explicitly.
+    client = OpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        timeout=timeout_seconds,
+        max_retries=0,
+    )
     messages = [{"role": "system", "content": _active_system_prompt()}]
     messages.extend({"role": t["role"], "content": t["content"]} for t in history)
     messages.append({"role": "user", "content": user_message})
