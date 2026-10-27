@@ -14,6 +14,7 @@ The project supports two datasets: **Olist Brazilian E-Commerce** and **DataCo S
 - [Datasets](#datasets)
 - [Machine Learning on Olist](#machine-learning-on-olist)
 - [AI Agent and Automatic LLM Routing](#ai-agent-and-automatic-llm-routing)
+- [RAG and Logistics Knowledge Assistant](#rag-and-logistics-knowledge-assistant)
 - [Logistics Maps](#logistics-maps)
 - [API Reference](#api-reference)
 - [Local Setup](#local-setup)
@@ -43,6 +44,8 @@ The project supports two datasets: **Olist Brazilian E-Commerce** and **DataCo S
 ### Agent and application
 
 - Tool/function calling connects natural-language requests to business functions.
+- RAG with LangChain, Qdrant, and multilingual embeddings retrieves documentation, returns citations, and abstains when evidence is insufficient.
+- A dedicated Knowledge Assistant UI and RAG API are available; the existing Olist/DataCo chat agents can also call the retrieval tool.
 - The backend automatically selects an LLM based on task type, configured API keys, and fallback ordering.
 - The UI asks users to select a dataset, not a model. The router can try another provider when an earlier call fails.
 - A local rule-based fallback handles certain supported Olist question patterns without an external API call.
@@ -82,6 +85,8 @@ Screenshots are stored in the MyAgentDemo directory.
            |                                |
     Brazil state-flow map             Country-flow map
 ~~~
+
+**RAG path:** allowlisted documents → LangChain chunking → local multilingual embeddings → Qdrant → retriever → configured LLM generates an answer with citations.
 
 **Olist path:** source CSV files → order-level aggregation and feature engineering → processed dataset → XGBoost models and DuckDB tools → Flask UI/API.
 
@@ -161,6 +166,67 @@ The provider integrations in the code include **Google Gemini, OpenAI, xAI, Groq
 **DataCo:** dataset description; order lookup; region/country statistics; shipping-mode comparisons; read-only SQL over the sanitized table; optional access-log aggregates; country-flow map.
 
 SQL outputs are capped. For DataCo, agent queries must use **dataco_orders**, and several keywords/functions that could modify data or read arbitrary files are blocked. These are application-level safeguards; they do not replace authentication, authorization, and infrastructure security in production.
+
+## RAG and Logistics Knowledge Assistant
+
+The RAG module supports questions about documentation, field definitions, and process guides. It does not replace DuckDB/SQL for numerical questions or the existing ML models for delivery-risk predictions.
+
+### Pipeline
+
+1. Load only allowlisted sources: bilingual READMEs, DataCo field descriptions, model metadata, and curated files under knowledge_base.
+2. Use LangChain to split content into overlapping chunks while preserving source metadata.
+3. Generate multilingual embeddings locally and store text/vector payloads in Qdrant.
+4. Retrieve relevant chunks, pass evidence to the configured LLM, and return citations.
+5. If no chunk reaches the configured similarity threshold, abstain rather than guessing.
+
+Raw Olist/DataCo order CSVs are deliberately excluded. knowledge_base/sample_delivery_sop.md is an invented demo SOP, not an official Olist or DataCo policy.
+
+### Docker quick start
+
+~~~bash
+docker compose up --build -d
+docker compose ps
+docker compose exec logistics-agent python -m src.rag_ingest
+~~~
+
+Open http://localhost:5000/knowledge. The first ingestion downloads the multilingual embedding model and stores its cache in the hf_cache Docker volume. A configured LLM API key (Gemini, Groq, OpenRouter, OpenAI, or xAI) is required for answer generation; embeddings run locally.
+
+### Native Python
+
+Install requirements.txt. To use persistent local Qdrant mode, leave QDRANT_URL unset; vectors are stored under .qdrant_storage by default. Then run:
+
+~~~powershell
+python -m src.rag_ingest
+python -m src.api
+~~~
+
+Open http://localhost:5000/knowledge. Running Python directly does not automatically load .env, so configure the LLM API key in your terminal or IDE as described in Local Setup.
+
+### RAG API
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | /knowledge | Knowledge Assistant UI |
+| GET | /api/v1/rag/status | Index status, chunk count, and backend |
+| POST | /api/v1/rag/query | Document-grounded Q&A with sources |
+
+Example request:
+
+~~~bash
+curl -X POST http://localhost:5000/api/v1/rag/query \
+  -H "Content-Type: application/json" \
+  -d '{"question":"Is late_delivery_risk a model-predicted probability?","top_k":4}'
+~~~
+
+The request body accepts question (or query) and top_k from 1 to 8. Sources include their path, similarity score, and excerpt. The existing chat agent also exposes the query_knowledge_base tool for document questions; quantitative analytics should still use SQL.
+
+### Configuration and limitations
+
+- RAG_EMBEDDING_MODEL defaults to sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 and is downloaded on first indexing.
+- RAG_LLM_PROVIDER=auto selects the first configured provider; supported values are gemini, groq, openrouter, openai, and xai. RAG_LLM_MODEL can override the default model.
+- RAG_MIN_RELEVANCE_SCORE controls evidence abstention. Evaluate it with representative questions before operational use.
+- Only index approved documents. Never commit secrets, personal data, or confidential company documents to a public repository.
+- The demo does not yet implement per-user authentication or document-level ACLs. Do not expose private knowledge bases to the public Internet until access controls are implemented.
 
 ## Logistics Maps
 
@@ -340,6 +406,8 @@ docker compose logs -f logistics-agent
 
 4. Open **http://localhost:5000**. Health check: **http://localhost:5000/health**.
 
+For RAG, run the ingest command above and open **http://localhost:5000/knowledge**.
+
 Stop the service:
 
 ~~~bash
@@ -377,6 +445,10 @@ DataCo tests are located at **tests/test_dataco_map.py**. Run:
 python -m unittest discover -s tests -p "test_dataco_map.py" -v
 ~~~
 
+~~~bash
+python -m unittest discover -s tests -p "test_rag.py" -v
+~~~
+
 The GitHub Actions workflow **.github/workflows/dataco-backend-tests.yml** includes Python compilation, DataCo map JavaScript syntax validation, and the corresponding unit tests when triggered by its configured workflow conditions.
 
 ## Project Structure
@@ -386,8 +458,11 @@ The GitHub Actions workflow **.github/workflows/dataco-backend-tests.yml** inclu
 ├── data/                     # Olist CSVs, processed dataset, Brazil GeoJSON
 ├── data_2/                   # DataCo CSV and field documentation
 ├── models/                   # XGBoost models, metadata, history lookup
+├── knowledge_base/           # Curated knowledge sources and clearly labeled demo SOP
 ├── src/
 │   ├── api.py                # Flask UI/API and map routes
+│   ├── rag.py                # Ingestion, embeddings, Qdrant retrieval, citations, grounded generation
+│   ├── rag_ingest.py         # Index creation/rebuild CLI
 │   ├── agent.py              # Agent orchestration
 │   ├── agent_gemini.py       # Gemini integration
 │   ├── providers.py           # Provider adapters and tool calling
