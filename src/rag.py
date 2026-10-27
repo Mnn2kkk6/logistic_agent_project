@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import os
+import uuid
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -246,6 +247,18 @@ def _vector_store(create_if_missing: bool = False):
     )
 
 
+def _document_point_id(document: Any) -> str:
+    """Return a deterministic RFC 4122 UUID accepted by Qdrant point IDs."""
+    key = (
+        str(document.metadata.get("source", "unknown"))
+        + "|"
+        + str(document.metadata.get("chunk_index", 0))
+        + "|"
+        + document.page_content
+    )
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, key))
+
+
 def index_knowledge_base(force_recreate: bool = True) -> dict[str, Any]:
     """Chunk and index curated docs. By default rebuild the dedicated collection."""
     try:
@@ -268,12 +281,7 @@ def index_knowledge_base(force_recreate: bool = True) -> dict[str, Any]:
     if force_recreate and client.collection_exists(collection_name=collection):
         client.delete_collection(collection_name=collection)
     store = _vector_store(create_if_missing=True)
-    ids = [
-        hashlib.sha256(
-            (document.metadata["source"] + "|" + str(document.metadata["chunk_index"]) + "|" + document.page_content).encode("utf-8")
-        ).hexdigest()
-        for document in chunks
-    ]
+    ids = [_document_point_id(document) for document in chunks]
     store.add_documents(documents=chunks, ids=ids)
     return {
         "collection": collection,
