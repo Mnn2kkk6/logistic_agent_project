@@ -153,8 +153,13 @@ def _new_history(
 
 
 def _direct_rag_query(history: list[dict[str, str]], user_message: str) -> str:
-    """Add the previous user question to terse follow-ups for retrieval relevance."""
-    if len(user_message.split()) <= 7 and history:
+    """Add the previous user question only for a short follow-up."""
+    normalized = user_message.lower().strip()
+    follow_up_markers = (
+        "còn ", "vậy ", "thế ", "nói rõ hơn", "giải thích thêm",
+        "chi tiết hơn", "cái này", "trường này", "more details", "explain more",
+    )
+    if len(user_message.split()) <= 7 and history and normalized.startswith(follow_up_markers):
         previous_user = next(
             (
                 item.get("content", "")
