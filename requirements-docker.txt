@@ -14,3 +14,11 @@ google-genai>=1.0
 openai>=1.40
 duckdb>=0.10
 tavily-python>=0.5
+
+# RAG stack; embedding model downloads at first indexing and is cached in a volume.
+langchain-core>=1.0,<2.0
+langchain-text-splitters>=1.0,<2.0
+langchain-qdrant>=1.1,<2.0
+langchain-huggingface[full]>=1.0,<2.0
+qdrant-client>=1.15,<2.0
+pypdf>=5,<7
