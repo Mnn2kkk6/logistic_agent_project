@@ -35,6 +35,7 @@ COPY --from=builder /opt/venv /opt/venv
 # Copy code + dataset đã xử lý + model đã train (data/models đổi ít, để layer riêng cuối
 # cùng, không làm hỏng cache của layer pip install ở trên khi chỉ sửa code).
 COPY src ./src
+COPY README.md READMEENG.md ./
 COPY templates ./templates
 COPY data ./data
 COPY data_2 ./data_2
