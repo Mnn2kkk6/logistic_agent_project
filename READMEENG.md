@@ -52,16 +52,16 @@ The project supports two datasets: **Olist Brazilian E-Commerce** and **DataCo S
 - A local rule-based fallback handles certain supported Olist question patterns without an external API call.
 - Flask web application, health endpoint, and multi-stage Docker build.
 
-### Chat và phân tích nghiệp vụ
+### Business Chat & Analysis
 
 <img width="1919" height="935" alt="image" src="https://github.com/user-attachments/assets/96db6384-1eae-4f79-a566-f7f266a1ab66" />
 
 
-### Bản đồ luồng đơn hàng Olist
+### Olist Order Flow Map
 
 <img width="1919" height="935" alt="image" src="https://github.com/user-attachments/assets/81162530-deb7-43fc-9439-5408cc19dd5e" />
 
-### Bản đồ luồng đơn hàng DataCo
+### DataCo Order Flow Map
 
 <img width="1919" height="938" alt="image" src="https://github.com/user-attachments/assets/eaf0771e-85b4-4b25-8171-096a60528141" />
 
