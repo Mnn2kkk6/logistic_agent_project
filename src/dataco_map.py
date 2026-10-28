@@ -15,6 +15,17 @@ _DATE_EXPR = (
 _ALLOWED_METRICS = {"orders", "late_risk_pct", "avg_shipping_days", "sales"}
 
 
+def _get_map_conn():
+    """Return a cursor/child connection dedicated to this map request.
+
+    dataco_tools._get_conn() holds the shared in-memory DuckDB database. Calling
+    cursor() gives this request its own connection context so simultaneous map
+    endpoints (for example summary + flows in Promise.all) do not execute queries
+    concurrently on the same connection object.
+    """
+    return dataco_tools._get_conn().cursor()
+
+
 def _filters(start_date=None, end_date=None, market=None, shipping_mode=None):
     parts, params = [], []
     if start_date:
@@ -41,20 +52,38 @@ def _clean_coord(name: str):
 
 
 def get_map_filters() -> dict[str, Any]:
-    con = dataco_tools._get_conn()
-    date_row = con.execute(f"SELECT MIN({_DATE_EXPR}), MAX({_DATE_EXPR}) FROM dataco_orders").fetchone()
-    markets = [r[0] for r in con.execute(
-        "SELECT DISTINCT market FROM dataco_orders WHERE market IS NOT NULL ORDER BY market"
-    ).fetchall()]
-    modes = [r[0] for r in con.execute(
-        "SELECT DISTINCT shipping_mode FROM dataco_orders WHERE shipping_mode IS NOT NULL ORDER BY shipping_mode"
-    ).fetchall()]
-    origins = [r[0] for r in con.execute(
-        "SELECT DISTINCT customer_country FROM dataco_orders WHERE customer_country IS NOT NULL ORDER BY customer_country"
-    ).fetchall()]
-    destinations = [r[0] for r in con.execute(
-        "SELECT DISTINCT order_country FROM dataco_orders WHERE order_country IS NOT NULL ORDER BY order_country"
-    ).fetchall()]
+    con = _get_map_conn()
+    date_row = con.execute(
+        f"SELECT MIN({_DATE_EXPR}), MAX({_DATE_EXPR}) FROM dataco_orders"
+    ).fetchone()
+    markets = [
+        r[0]
+        for r in con.execute(
+            "SELECT DISTINCT market FROM dataco_orders "
+            "WHERE market IS NOT NULL ORDER BY market"
+        ).fetchall()
+    ]
+    modes = [
+        r[0]
+        for r in con.execute(
+            "SELECT DISTINCT shipping_mode FROM dataco_orders "
+            "WHERE shipping_mode IS NOT NULL ORDER BY shipping_mode"
+        ).fetchall()
+    ]
+    origins = [
+        r[0]
+        for r in con.execute(
+            "SELECT DISTINCT customer_country FROM dataco_orders "
+            "WHERE customer_country IS NOT NULL ORDER BY customer_country"
+        ).fetchall()
+    ]
+    destinations = [
+        r[0]
+        for r in con.execute(
+            "SELECT DISTINCT order_country FROM dataco_orders "
+            "WHERE order_country IS NOT NULL ORDER BY order_country"
+        ).fetchall()
+    ]
     return {
         "start_date": date_row[0].strftime("%Y-%m-%d") if date_row and date_row[0] else None,
         "end_date": date_row[1].strftime("%Y-%m-%d") if date_row and date_row[1] else None,
@@ -64,12 +93,15 @@ def get_map_filters() -> dict[str, Any]:
         "destination_countries": destinations,
         "mapped_origin_countries": sum(1 for x in origins if _clean_coord(x)),
         "mapped_destination_countries": sum(1 for x in destinations if _clean_coord(x)),
-        "map_note": "Customer Country → Order Country is a proxy from the available dataset fields, not a verified warehouse/seller route.",
+        "map_note": (
+            "Customer Country → Order Country is a proxy from the available dataset fields, "
+            "not a verified warehouse/seller route."
+        ),
     }
 
 
 def get_map_summary(start_date=None, end_date=None, market=None, shipping_mode=None) -> dict[str, Any]:
-    con = dataco_tools._get_conn()
+    con = _get_map_conn()
     where, params = _filters(start_date, end_date, market, shipping_mode)
     row = con.execute(
         f"""SELECT COUNT(*) AS line_items,
@@ -82,22 +114,32 @@ def get_map_summary(start_date=None, end_date=None, market=None, shipping_mode=N
         params,
     ).fetchone()
     return {
-        "line_items": int(row[0] or 0), "orders": int(row[1] or 0),
-        "avg_actual_days": row[2], "avg_scheduled_days": row[3],
-        "late_risk_pct": row[4], "sales": row[5],
+        "line_items": int(row[0] or 0),
+        "orders": int(row[1] or 0),
+        "avg_actual_days": row[2],
+        "avg_scheduled_days": row[3],
+        "late_risk_pct": row[4],
+        "sales": row[5],
         "metric_note": "Late-risk is the average of the dataset's existing label, not an ML prediction.",
     }
 
 
 def get_country_flows(
-    start_date=None, end_date=None, market=None, shipping_mode=None,
-    origin_country=None, destination_country=None, metric="orders", limit=40, min_orders=20,
+    start_date=None,
+    end_date=None,
+    market=None,
+    shipping_mode=None,
+    origin_country=None,
+    destination_country=None,
+    metric="orders",
+    limit=40,
+    min_orders=20,
 ) -> dict[str, Any]:
     metric = metric if metric in _ALLOWED_METRICS else "orders"
     try:
         limit = max(1, min(int(limit), 250))
         min_orders = max(1, min(int(min_orders), 1000000))
-        con = dataco_tools._get_conn()
+        con = _get_map_conn()
         where, params = _filters(start_date, end_date, market, shipping_mode)
         extra = []
         if origin_country:
@@ -136,28 +178,44 @@ def get_country_flows(
             a, b = _clean_coord(origin), _clean_coord(destination)
             if not a or not b or not origin or not destination or origin == destination:
                 continue
-            flows.append({
-                "id": f"{origin}::{destination}",
-                "origin_country": origin, "destination_country": destination,
-                "origin": a, "destination": b,
-                "orders": int(row[2]), "line_items": int(row[3]),
-                "avg_actual_days": row[4], "avg_scheduled_days": row[5],
-                "late_risk_pct": row[6], "sales": row[7],
-            })
-        return {"metric": metric, "flows": flows, "n_flows": len(flows),
-                "proxy_note": "Customer Country → Order Country is a proxy, not a verified physical route.",
-                "metric_note": "late_risk_pct uses the pre-existing dataset label; no DataCo-specific ML model is applied."}
+            flows.append(
+                {
+                    "id": f"{origin}::{destination}",
+                    "origin_country": origin,
+                    "destination_country": destination,
+                    "origin": a,
+                    "destination": b,
+                    "orders": int(row[2]),
+                    "line_items": int(row[3]),
+                    "avg_actual_days": row[4],
+                    "avg_scheduled_days": row[5],
+                    "late_risk_pct": row[6],
+                    "sales": row[7],
+                }
+            )
+        return {
+            "metric": metric,
+            "flows": flows,
+            "n_flows": len(flows),
+            "proxy_note": "Customer Country → Order Country is a proxy, not a verified physical route.",
+            "metric_note": "late_risk_pct uses the pre-existing dataset label; no DataCo-specific ML model is applied.",
+        }
     except Exception as exc:
         return {"error": f"Không thể tổng hợp country flows: {exc}"}
 
 
 def get_country_flow_orders(
-    origin_country: str, destination_country: str, start_date=None, end_date=None,
-    market=None, shipping_mode=None, limit=25,
+    origin_country: str,
+    destination_country: str,
+    start_date=None,
+    end_date=None,
+    market=None,
+    shipping_mode=None,
+    limit=25,
 ) -> dict[str, Any]:
     try:
         limit = max(1, min(int(limit), 100))
-        con = dataco_tools._get_conn()
+        con = _get_map_conn()
         where, params = _filters(start_date, end_date, market, shipping_mode)
         extra = ["customer_country = ?", "order_country = ?"]
         params.extend([origin_country, destination_country])
@@ -172,7 +230,8 @@ def get_country_flow_orders(
             [*params, limit],
         ).fetchdf()
         return {
-            "origin_country": origin_country, "destination_country": destination_country,
+            "origin_country": origin_country,
+            "destination_country": destination_country,
             "rows": rows.where(rows.notna(), None).to_dict(orient="records"),
             "n_rows": len(rows),
             "note": "Each row is an order item; an order may appear more than once.",
