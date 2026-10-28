@@ -52,17 +52,18 @@ The project supports two datasets: **Olist Brazilian E-Commerce** and **DataCo S
 - A local rule-based fallback handles certain supported Olist question patterns without an external API call.
 - Flask web application, health endpoint, and multi-stage Docker build.
 
-## Screenshots
+### Chat và phân tích nghiệp vụ
 
-Screenshots are stored in the MyAgentDemo directory.
+<img width="1919" height="935" alt="image" src="https://github.com/user-attachments/assets/96db6384-1eae-4f79-a566-f7f266a1ab66" />
 
-### Chat and analytics
 
-![AI Logistics Agent chat interface](MyAgentDemo/Home.png)
+### Bản đồ luồng đơn hàng Olist
 
-### Olist order-flow map
+<img width="1919" height="935" alt="image" src="https://github.com/user-attachments/assets/81162530-deb7-43fc-9439-5408cc19dd5e" />
 
-![Olist logistics flow map](MyAgentDemo/Map.png)
+### Bản đồ luồng đơn hàng DataCo
+
+<img width="1919" height="938" alt="image" src="https://github.com/user-attachments/assets/eaf0771e-85b4-4b25-8171-096a60528141" />
 
 ## Architecture
 
