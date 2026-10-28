@@ -62,3 +62,5 @@ jobs:
         run: python -m unittest discover -s tests -p "test_intent_router.py" -v
       - name: Test runtime router and tool filtering
         run: python -m unittest discover -s tests -p "test_model_router_intents.py" -v
+      - name: Test RAG README Docker context
+        run: python -m unittest discover -s tests -p "test_rag_docker_context.py" -v
