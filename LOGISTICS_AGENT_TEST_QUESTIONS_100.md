@@ -328,13 +328,6 @@
 
 ---
 
-## Gợi ý ghi nhận kết quả kiểm thử
-
-Đánh giá từng câu theo thang **0–2 điểm**:
-
-- **0 — Không đạt:** Sai dữ liệu, chọn sai dataset/tool, bịa số liệu/nguồn, hoặc khẳng định quá mức.
-- **1 — Đạt một phần:** Hướng trả lời phù hợp nhưng thiếu điều kiện, mẫu số, nguồn, xử lý giá trị thiếu hoặc nêu giới hạn chưa rõ.
-- **2 — Đạt:** Dùng đúng dataset/công cụ, dữ liệu có thể kiểm chứng, giải thích KPI đúng và nêu giới hạn quan trọng.
 
 Với từng lượt test, ghi lại: `Question ID`, dataset được chọn, prompt, câu trả lời của agent, nguồn/SQL/API (nếu quan sát được), điểm 0–2 và lỗi cần xử lý. Không coi câu trả lời nghe hợp lý là bằng chứng đúng; hãy đối chiếu các con số quan trọng với truy vấn độc lập. Với câu liên quan RAG, kiểm tra đường dẫn nguồn và xem đoạn trích có thực sự hỗ trợ kết luận hay không.
 
